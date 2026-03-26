@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>YouTube Plugin</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
+            }
+            #player {
+                width: 100%;
+                height: 100%;
+            }
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="player"></div>
+        <div id="error-overlay"></div>
+
+        <script src="plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.video_id    (string) - YouTube video ID (or provide content.url)
+                //   config.api_key     (string, optional) - YouTube Data API key
+                //   config.mute        (boolean, default true)
+                //   config.loop        (boolean, default true)
+                //   config.start       (number, optional) - start time in seconds
+                //   config.end         (number, optional) - end time in seconds
+                //   config.controls    (boolean, default false) - show player controls
+                //
+                //   config.auth        (object, optional) - auth credentials
+                //   config.auth.token  (string) - OAuth 2.0 access token
+                //
+                // The host may also supply the video URL via content.url instead
+                // of config.video_id. The plugin will extract the ID from the URL.
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        video_id: {
+                            type: 'string',
+                            title: 'YouTube Video ID',
+                            description:
+                                'The YouTube video ID (e.g. dQw4w9WgXcQ). Alternatively, provide a YouTube URL via content.url.',
+                        },
+                        api_key: {
+                            type: 'string',
+                            title: 'API Key',
+                            description:
+                                'YouTube Data API v3 key (optional, used for private/unlisted videos)',
+                        },
+                        auth: {
+                            type: 'object',
+                            title: 'Auth Credentials',
+                            description:
+                                'OAuth 2.0 credentials for accessing private videos',
+                            properties: {
+                                token: {
+                                    type: 'string',
+                                    title: 'Access Token',
+                                    description: 'OAuth 2.0 access token',
+                                },
+                            },
+                        },
+                        mute: { type: 'boolean', title: 'Mute', default: true },
+                        loop: { type: 'boolean', title: 'Loop', default: true },
+                        start: {
+                            type: 'number',
+                            title: 'Start Time (seconds)',
+                        },
+                        end: { type: 'number', title: 'End Time (seconds)' },
+                        controls: {
+                            type: 'boolean',
+                            title: 'Show Controls',
+                            default: false,
+                        },
+                    },
+                };
+
+                var pluginConfig = null;
+                var ytPlayer = null;
+                var ytApiReady = false;
+                var ytApiLoading = false;
+                var pendingPlay = false;
+
+                // Create the signage plugin
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'youtube-player',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: true,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        pluginConfig = payload;
+                        var config = payload.config || {};
+
+                        // Resolve video ID: explicit config, or extract from content URL
+                        var videoId =
+                            config.video_id || extractVideoId(payload.content);
+
+                        if (!videoId) {
+                            plugin.error({
+                                code: 'MISSING_VIDEO_ID',
+                                message:
+                                    'No video_id provided in config and no valid YouTube URL in content.',
+                                fatal: true,
+                            });
+                            showError('Missing YouTube video ID');
+                            return;
+                        }
+
+                        // Store resolved config
+                        pluginConfig._resolvedVideoId = videoId;
+
+                        // Destroy existing player if re-configuring
+                        if (ytPlayer) {
+                            try {
+                                ytPlayer.destroy();
+                            } catch (e) {
+                                // Ignore errors during cleanup
+                            }
+                            ytPlayer = null;
+
+                            // Re-create the player container (destroy removes the element)
+                            var container = document.createElement('div');
+                            container.id = 'player';
+                            document.body.insertBefore(
+                                container,
+                                document.getElementById('error-overlay'),
+                            );
+                        }
+
+                        // Hide any previous error
+                        var overlay =
+                            document.getElementById('error-overlay');
+                        if (overlay) {
+                            overlay.style.display = 'none';
+                        }
+
+                        // Load the YouTube IFrame API if not already loaded/loading
+                        if (ytApiReady) {
+                            initPlayer(videoId, config);
+                        } else if (!ytApiLoading) {
+                            loadYouTubeApi(function () {
+                                initPlayer(videoId, config);
+                            });
+                        } else {
+                            // API is loading — update the callback to use the new config
+                            window._ytPendingInit = function () {
+                                initPlayer(videoId, config);
+                            };
+                        }
+                    },
+
+                    onPlay: function () {
+                        if (
+                            ytPlayer &&
+                            typeof ytPlayer.playVideo === 'function'
+                        ) {
+                            ytPlayer.playVideo();
+                        } else {
+                            pendingPlay = true;
+                        }
+                    },
+                });
+
+                // ---------------------------------------------------------------
+                // YouTube IFrame API loader
+                // ---------------------------------------------------------------
+
+                function loadYouTubeApi(callback) {
+                    ytApiLoading = true;
+
+                    // Store callback so it can be replaced if config arrives again
+                    window._ytPendingInit = callback;
+
+                    // The YT API calls window.onYouTubeIframeAPIReady when ready
+                    window.onYouTubeIframeAPIReady = function () {
+                        ytApiReady = true;
+                        ytApiLoading = false;
+                        // Use the latest pending init (may have been replaced by a re-config)
+                        if (window._ytPendingInit) {
+                            window._ytPendingInit();
+                            window._ytPendingInit = null;
+                        }
+                    };
+
+                    var tag = document.createElement('script');
+                    tag.src = 'https://www.youtube.com/iframe_api';
+
+                    // If an API key is provided, append it
+                    var apiKey =
+                        (pluginConfig &&
+                            pluginConfig.config &&
+                            pluginConfig.config.api_key) ||
+                        null;
+                    if (apiKey) {
+                        tag.src += '?key=' + encodeURIComponent(apiKey);
+                    }
+
+                    tag.onerror = function () {
+                        plugin.error({
+                            code: 'YT_API_LOAD_FAILED',
+                            message:
+                                'Failed to load YouTube IFrame API script.',
+                            fatal: true,
+                        });
+                        showError('Failed to load YouTube player');
+                    };
+
+                    document.head.appendChild(tag);
+                }
+
+                // ---------------------------------------------------------------
+                // Player initialisation
+                // ---------------------------------------------------------------
+
+                function initPlayer(videoId, config) {
+                    var mute = config.mute !== undefined ? config.mute : true;
+                    var loop = config.loop !== undefined ? config.loop : true;
+                    var controls = config.controls ? 1 : 0;
+
+                    var playerVars = {
+                        autoplay: 0, // We control play via the host 'play' signal
+                        controls: controls,
+                        modestbranding: 1,
+                        rel: 0,
+                        showinfo: 0,
+                        iv_load_policy: 3, // Hide annotations
+                        disablekb: 1,
+                        fs: 0,
+                        playsinline: 1,
+                        enablejsapi: 1,
+                        origin: window.location.origin,
+                    };
+
+                    if (loop) {
+                        playerVars.loop = 1;
+                        playerVars.playlist = videoId; // Required for loop to work
+                    }
+
+                    if (config.start !== undefined && config.start !== null) {
+                        playerVars.start = Math.floor(config.start);
+                    }
+                    if (config.end !== undefined && config.end !== null) {
+                        playerVars.end = Math.floor(config.end);
+                    }
+
+                    // NOTE: The YouTube IFrame API does not support passing OAuth
+                    // tokens directly. For private/unlisted videos, the host should
+                    // ensure the user is authenticated in the browser session before
+                    // loading this plugin, or use an API key with appropriate access.
+                    // The config.auth.token field is accepted for future use or
+                    // custom server-side integrations but has no effect at the
+                    // IFrame embed level.
+
+                    ytPlayer = new YT.Player('player', {
+                        videoId: videoId,
+                        width: '100%',
+                        height: '100%',
+                        playerVars: playerVars,
+                        events: {
+                            onReady: function (event) {
+                                if (mute) {
+                                    event.target.mute();
+                                }
+
+                                // Signal ready to the host
+                                plugin.ready();
+
+                                // If the host already sent play before we were ready
+                                if (pendingPlay) {
+                                    pendingPlay = false;
+                                    event.target.playVideo();
+                                }
+                            },
+
+                            onStateChange: function (event) {
+                                // YT.PlayerState.ENDED === 0
+                                if (event.data === YT.PlayerState.ENDED) {
+                                    if (!loop) {
+                                        plugin.finished();
+                                    }
+                                }
+                            },
+
+                            onError: function (event) {
+                                var errorMessages = {
+                                    2: 'Invalid video ID',
+                                    5: 'HTML5 player error',
+                                    100: 'Video not found or removed',
+                                    101: 'Video owner does not allow embedded playback',
+                                    150: 'Video owner does not allow embedded playback',
+                                };
+
+                                var message =
+                                    errorMessages[event.data] ||
+                                    'YouTube player error (code ' +
+                                        event.data +
+                                        ')';
+
+                                plugin.error({
+                                    code: 'YT_PLAYER_ERROR',
+                                    message: message,
+                                    fatal: true,
+                                    details: { yt_error_code: event.data },
+                                });
+
+                                showError(message);
+                            },
+                        },
+                    });
+                }
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Extract a YouTube video ID from a URL.
+                 * Supports youtube.com/watch?v=, youtu.be/, and embed URLs.
+                 */
+                function extractVideoId(content) {
+                    if (!content || !content.url) return null;
+                    var url = content.url;
+
+                    // youtu.be/VIDEO_ID
+                    var shortMatch = url.match(
+                        /youtu\.be\/([A-Za-z0-9_-]{11})/,
+                    );
+                    if (shortMatch) return shortMatch[1];
+
+                    // youtube.com/watch?v=VIDEO_ID
+                    var watchMatch = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+                    if (watchMatch) return watchMatch[1];
+
+                    // youtube.com/embed/VIDEO_ID
+                    var embedMatch = url.match(/\/embed\/([A-Za-z0-9_-]{11})/);
+                    if (embedMatch) return embedMatch[1];
+
+                    return null;
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>
