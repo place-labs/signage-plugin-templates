@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Signage Plugin Validator</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                    sans-serif;
+                background: #1a1a2e;
+                color: #e0e0e0;
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Header                                                          */
+            /* --------------------------------------------------------------- */
+
+            .header {
+                background: #16213e;
+                padding: 1rem 1.5rem;
+                border-bottom: 1px solid #0f3460;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
+            .header h1 {
+                font-size: 1.25rem;
+                color: #e94560;
+                white-space: nowrap;
+            }
+            .header label {
+                font-size: 0.875rem;
+                color: #a0a0b8;
+            }
+            .header input[type='text'] {
+                background: #1a1a2e;
+                border: 1px solid #0f3460;
+                color: #e0e0e0;
+                padding: 0.4rem 0.6rem;
+                border-radius: 4px;
+                font-size: 0.875rem;
+                width: 320px;
+            }
+            .header input[type='text']:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+            .btn {
+                background: #e94560;
+                color: #fff;
+                border: none;
+                padding: 0.4rem 1rem;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.875rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+            .btn:hover {
+                background: #c73650;
+            }
+            .btn:disabled {
+                background: #555;
+                cursor: not-allowed;
+            }
+            .btn-secondary {
+                background: #0f3460;
+            }
+            .btn-secondary:hover {
+                background: #1a4a7a;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Main layout                                                     */
+            /* --------------------------------------------------------------- */
+
+            .main {
+                display: flex;
+                flex: 1;
+                overflow: hidden;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Plugin preview pane                                             */
+            /* --------------------------------------------------------------- */
+
+            .preview {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                border-right: 1px solid #0f3460;
+                min-width: 0;
+            }
+            .preview-toolbar {
+                background: #16213e;
+                padding: 0.5rem 1rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                border-bottom: 1px solid #0f3460;
+                flex-wrap: wrap;
+            }
+            .preview-toolbar span {
+                font-size: 0.8rem;
+                color: #a0a0b8;
+            }
+            .preview iframe {
+                flex: 1;
+                border: none;
+                background: #000;
+                width: 100%;
+            }
+            .preview .empty-state {
+                flex: 1;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                color: #555;
+                font-size: 1rem;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Log pane                                                        */
+            /* --------------------------------------------------------------- */
+
+            .log-pane {
+                width: 480px;
+                min-width: 320px;
+                display: flex;
+                flex-direction: column;
+                background: #0f0f23;
+            }
+            .log-header {
+                background: #16213e;
+                padding: 0.5rem 1rem;
+                border-bottom: 1px solid #0f3460;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .log-header h2 {
+                font-size: 0.95rem;
+                color: #a0a0b8;
+            }
+            .log-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 0.5rem;
+                font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+                font-size: 0.8rem;
+                line-height: 1.6;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Log entries                                                     */
+            /* --------------------------------------------------------------- */
+
+            .log-entry {
+                padding: 0.35rem 0.5rem;
+                border-radius: 3px;
+                margin-bottom: 2px;
+                border-left: 3px solid transparent;
+            }
+            .log-entry.pass {
+                border-left-color: #4caf50;
+            }
+            .log-entry.fail {
+                border-left-color: #f44336;
+                background: rgba(244, 67, 54, 0.08);
+            }
+            .log-entry.warn {
+                border-left-color: #ff9800;
+                background: rgba(255, 152, 0, 0.06);
+            }
+            .log-entry.info {
+                border-left-color: #2196f3;
+            }
+            .log-entry.msg-in {
+                border-left-color: #9c27b0;
+            }
+            .log-entry.msg-out {
+                border-left-color: #00bcd4;
+            }
+
+            .log-tag {
+                display: inline-block;
+                font-weight: 700;
+                min-width: 3.5rem;
+            }
+            .log-tag.pass {
+                color: #4caf50;
+            }
+            .log-tag.fail {
+                color: #f44336;
+            }
+            .log-tag.warn {
+                color: #ff9800;
+            }
+            .log-tag.info {
+                color: #64b5f6;
+            }
+            .log-tag.msg-in {
+                color: #ce93d8;
+            }
+            .log-tag.msg-out {
+                color: #4dd0e1;
+            }
+            .log-text {
+                color: #ccc;
+            }
+            .log-detail {
+                color: #888;
+                margin-left: 4rem;
+                word-break: break-all;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Summary bar                                                     */
+            /* --------------------------------------------------------------- */
+
+            .summary-bar {
+                background: #16213e;
+                padding: 0.5rem 1rem;
+                border-top: 1px solid #0f3460;
+                font-size: 0.85rem;
+                display: flex;
+                gap: 1.5rem;
+            }
+            .summary-bar .pass-count {
+                color: #4caf50;
+            }
+            .summary-bar .fail-count {
+                color: #f44336;
+            }
+            .summary-bar .warn-count {
+                color: #ff9800;
+            }
+
+            /* --------------------------------------------------------------- */
+            /* Config editor modal                                             */
+            /* --------------------------------------------------------------- */
+
+            .config-editor {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.7);
+                z-index: 100;
+                justify-content: center;
+                align-items: center;
+            }
+            .config-editor.open {
+                display: flex;
+            }
+            .config-editor-inner {
+                background: #1a1a2e;
+                border: 1px solid #0f3460;
+                border-radius: 8px;
+                padding: 1.5rem;
+                width: 520px;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .config-editor-inner h3 {
+                margin-bottom: 1rem;
+                color: #e94560;
+            }
+            .config-editor-inner textarea {
+                width: 100%;
+                height: 200px;
+                background: #0f0f23;
+                color: #e0e0e0;
+                border: 1px solid #0f3460;
+                border-radius: 4px;
+                font-family: 'SF Mono', 'Fira Code', monospace;
+                font-size: 0.85rem;
+                padding: 0.75rem;
+                resize: vertical;
+            }
+            .config-editor-inner textarea:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+            .config-editor-inner .btn-row {
+                margin-top: 1rem;
+                display: flex;
+                gap: 0.5rem;
+                justify-content: flex-end;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- --------------------------------------------------------------- -->
+        <!-- Header                                                          -->
+        <!-- --------------------------------------------------------------- -->
+
+        <div class="header">
+            <h1>Plugin Validator</h1>
+            <label for="plugin-url">Plugin URL:</label>
+            <input
+                type="text"
+                id="plugin-url"
+                placeholder="e.g. youtube.html"
+                value="youtube.html"
+            />
+            <button class="btn" id="btn-load" type="button">Load</button>
+            <button
+                class="btn btn-secondary"
+                id="btn-config"
+                type="button"
+                disabled
+            >
+                Send Config
+            </button>
+            <button
+                class="btn btn-secondary"
+                id="btn-play"
+                type="button"
+                disabled
+            >
+                Send Play
+            </button>
+            <button
+                class="btn btn-secondary"
+                id="btn-reset"
+                type="button"
+                disabled
+            >
+                Reset
+            </button>
+        </div>
+
+        <!-- --------------------------------------------------------------- -->
+        <!-- Main layout                                                     -->
+        <!-- --------------------------------------------------------------- -->
+
+        <div class="main">
+            <!-- Plugin preview -->
+            <div class="preview">
+                <div class="preview-toolbar">
+                    <span id="plugin-status">No plugin loaded</span>
+                </div>
+                <div class="empty-state" id="empty-state">
+                    Enter a plugin URL and click Load
+                </div>
+            </div>
+
+            <!-- Log pane -->
+            <div class="log-pane">
+                <div class="log-header">
+                    <h2>Validation Log</h2>
+                    <button class="btn btn-secondary" id="btn-clear-log">
+                        Clear
+                    </button>
+                </div>
+                <div class="log-body" id="log-body"></div>
+                <div class="summary-bar" id="summary-bar">
+                    <span class="pass-count" id="pass-count">0 passed</span>
+                    <span class="fail-count" id="fail-count">0 failed</span>
+                    <span class="warn-count" id="warn-count">0 warnings</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- --------------------------------------------------------------- -->
+        <!-- Config editor modal                                             -->
+        <!-- --------------------------------------------------------------- -->
+
+        <div class="config-editor" id="config-editor">
+            <div class="config-editor-inner">
+                <h3>Plugin Configuration</h3>
+                <p
+                    style="
+                        color: #a0a0b8;
+                        font-size: 0.85rem;
+                        margin-bottom: 0.75rem;
+                    "
+                >
+                    Edit the config payload that will be sent to the plugin.
+                    Must be valid JSON.
+                </p>
+                <textarea id="config-json"></textarea>
+                <div class="btn-row">
+                    <button
+                        class="btn btn-secondary"
+                        id="btn-config-cancel"
+                        type="button"
+                    >
+                        Cancel
+                    </button>
+                    <button class="btn" id="btn-config-send" type="button">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- --------------------------------------------------------------- -->
+        <!-- Validator script                                                -->
+        <!-- --------------------------------------------------------------- -->
+
+        <script>
+            (function () {
+                'use strict';
+
+                var API_VERSION = 'signage-plugin/v1';
+
+                // ---------------------------------------------------------------
+                // State
+                // ---------------------------------------------------------------
+
+                var state = {
+                    iframe: null,
+                    pluginLoaded: false,
+                    pluginReady: false,
+                    configSent: false,
+                    playSent: false,
+                    pluginFinished: false,
+                    loadedPayload: null,
+                    configSchema: null,
+                    counts: { pass: 0, fail: 0, warn: 0 },
+                };
+
+                // ---------------------------------------------------------------
+                // DOM references
+                // ---------------------------------------------------------------
+
+                var elPluginUrl = document.getElementById('plugin-url');
+                var elBtnLoad = document.getElementById('btn-load');
+                var elBtnConfig = document.getElementById('btn-config');
+                var elBtnPlay = document.getElementById('btn-play');
+                var elBtnReset = document.getElementById('btn-reset');
+                var elBtnClearLog = document.getElementById('btn-clear-log');
+                var elLogBody = document.getElementById('log-body');
+                var elPluginStatus = document.getElementById('plugin-status');
+                var elEmptyState = document.getElementById('empty-state');
+                var elPreview = document.querySelector('.preview');
+                var elPassCount = document.getElementById('pass-count');
+                var elFailCount = document.getElementById('fail-count');
+                var elWarnCount = document.getElementById('warn-count');
+                var elConfigEditor = document.getElementById('config-editor');
+                var elConfigJson = document.getElementById('config-json');
+                var elBtnConfigCancel =
+                    document.getElementById('btn-config-cancel');
+                var elBtnConfigSend =
+                    document.getElementById('btn-config-send');
+
+                // ---------------------------------------------------------------
+                // Logging
+                // ---------------------------------------------------------------
+
+                /**
+                 * Append a log entry to the log pane.
+                 *
+                 * @param {'pass'|'fail'|'warn'|'info'|'msg-in'|'msg-out'} level
+                 * @param {string} text
+                 * @param {string} [detail]
+                 */
+                function log(level, text, detail) {
+                    var tagLabels = {
+                        pass: 'PASS',
+                        fail: 'FAIL',
+                        warn: 'WARN',
+                        info: 'INFO',
+                        'msg-in': 'RECV',
+                        'msg-out': 'SEND',
+                    };
+
+                    var entry = document.createElement('div');
+                    entry.className = 'log-entry ' + level;
+
+                    var tag = document.createElement('span');
+                    tag.className = 'log-tag ' + level;
+                    tag.textContent = '[' + tagLabels[level] + '] ';
+                    entry.appendChild(tag);
+
+                    var span = document.createElement('span');
+                    span.className = 'log-text';
+                    span.textContent = text;
+                    entry.appendChild(span);
+
+                    if (detail) {
+                        var detailEl = document.createElement('div');
+                        detailEl.className = 'log-detail';
+                        detailEl.textContent = detail;
+                        entry.appendChild(detailEl);
+                    }
+
+                    elLogBody.appendChild(entry);
+                    elLogBody.scrollTop = elLogBody.scrollHeight;
+
+                    // Update counts
+                    if (
+                        level === 'pass' ||
+                        level === 'fail' ||
+                        level === 'warn'
+                    ) {
+                        state.counts[level]++;
+                        _updateSummary();
+                    }
+                }
+
+                function _updateSummary() {
+                    elPassCount.textContent = state.counts.pass + ' passed';
+                    elFailCount.textContent = state.counts.fail + ' failed';
+                    elWarnCount.textContent = state.counts.warn + ' warnings';
+                }
+
+                function clearLog() {
+                    elLogBody.innerHTML = '';
+                    state.counts = { pass: 0, fail: 0, warn: 0 };
+                    _updateSummary();
+                }
+
+                // ---------------------------------------------------------------
+                // Message sending (host -> plugin)
+                // ---------------------------------------------------------------
+
+                /**
+                 * Post a message to the plugin iframe.
+                 *
+                 * @param {string} type
+                 * @param {object} [payload]
+                 */
+                function sendToPlugin(type, payload) {
+                    if (!state.iframe || !state.iframe.contentWindow) {
+                        log('warn', 'No iframe to send message to.');
+                        return;
+                    }
+                    var message = {
+                        api: API_VERSION,
+                        type: type,
+                    };
+                    if (payload !== undefined) {
+                        message.payload = payload;
+                    }
+                    state.iframe.contentWindow.postMessage(message, '*');
+                    log(
+                        'msg-out',
+                        'Sent "' + type + '" to plugin',
+                        JSON.stringify(message, null, 2),
+                    );
+                }
+
+                // ---------------------------------------------------------------
+                // Validation helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Validate the 'loaded' message payload.
+                 *
+                 * @param {object} payload
+                 */
+                function validateLoadedPayload(payload) {
+                    if (!payload) {
+                        log('fail', '"loaded" message has no payload.');
+                        return;
+                    }
+
+                    // plugin metadata
+                    if (
+                        payload.plugin &&
+                        typeof payload.plugin.name === 'string' &&
+                        payload.plugin.name.length > 0
+                    ) {
+                        log(
+                            'pass',
+                            'plugin.name is present: "' +
+                                payload.plugin.name +
+                                '"',
+                        );
+                    } else {
+                        log(
+                            'fail',
+                            'plugin.name is missing or not a non-empty string.',
+                        );
+                    }
+
+                    if (
+                        payload.plugin &&
+                        typeof payload.plugin.version === 'string' &&
+                        payload.plugin.version.length > 0
+                    ) {
+                        log(
+                            'pass',
+                            'plugin.version is present: "' +
+                                payload.plugin.version +
+                                '"',
+                        );
+                    } else {
+                        log(
+                            'fail',
+                            'plugin.version is missing or not a non-empty string.',
+                        );
+                    }
+
+                    // capabilities
+                    if (
+                        payload.capabilities &&
+                        typeof payload.capabilities === 'object'
+                    ) {
+                        log('pass', 'capabilities object is present.');
+
+                        var caps = payload.capabilities;
+                        var capKeys = [
+                            'requires_play_signal',
+                            'can_finish',
+                            'static_media',
+                        ];
+                        for (var i = 0; i < capKeys.length; i++) {
+                            var key = capKeys[i];
+                            if (typeof caps[key] === 'boolean') {
+                                log(
+                                    'pass',
+                                    'capabilities.' + key + ' = ' + caps[key],
+                                );
+                            } else {
+                                log(
+                                    'fail',
+                                    'capabilities.' +
+                                        key +
+                                        ' is missing or not a boolean.',
+                                );
+                            }
+                        }
+                    } else {
+                        log('fail', 'capabilities object is missing.');
+                    }
+
+                    // config_schema
+                    if (
+                        payload.config_schema !== undefined &&
+                        payload.config_schema !== null &&
+                        typeof payload.config_schema === 'object'
+                    ) {
+                        log('pass', 'config_schema is present.');
+                        var schemaKeys = Object.keys(payload.config_schema);
+                        if (schemaKeys.length === 0) {
+                            log(
+                                'warn',
+                                'config_schema is empty. Consider defining a schema for host UI generation.',
+                            );
+                        }
+                    } else {
+                        log(
+                            'warn',
+                            'config_schema is missing or not an object.',
+                        );
+                    }
+                }
+
+                /**
+                 * Validate the 'ready' message.
+                 */
+                function validateReadyMessage() {
+                    if (!state.configSent) {
+                        log(
+                            'warn',
+                            'Plugin sent "ready" before host sent "config". This may indicate the plugin does not require configuration.',
+                        );
+                    } else {
+                        log(
+                            'pass',
+                            '"ready" received after "config" was sent.',
+                        );
+                    }
+                }
+
+                /**
+                 * Validate the 'finished' message.
+                 */
+                function validateFinishedMessage() {
+                    if (!state.pluginReady) {
+                        log(
+                            'warn',
+                            'Plugin sent "finished" before "ready". Unusual lifecycle order.',
+                        );
+                    }
+
+                    if (
+                        state.loadedPayload &&
+                        state.loadedPayload.capabilities &&
+                        !state.loadedPayload.capabilities.can_finish
+                    ) {
+                        log(
+                            'fail',
+                            'Plugin sent "finished" but declared can_finish=false.',
+                        );
+                    } else {
+                        log('pass', '"finished" received. Lifecycle complete.');
+                    }
+
+                    if (state.pluginFinished) {
+                        log(
+                            'fail',
+                            '"finished" received more than once. Plugins should only finish once.',
+                        );
+                    }
+                }
+
+                /**
+                 * Validate the 'error' message payload.
+                 *
+                 * @param {object} payload
+                 */
+                function validateErrorPayload(payload) {
+                    if (!payload) {
+                        log('fail', '"error" message has no payload.');
+                        return;
+                    }
+
+                    if (
+                        typeof payload.code === 'string' &&
+                        payload.code.length > 0
+                    ) {
+                        log(
+                            'pass',
+                            'error.code is present: "' + payload.code + '"',
+                        );
+
+                        // Check UPPER_SNAKE_CASE convention
+                        if (
+                            /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/.test(payload.code)
+                        ) {
+                            log(
+                                'pass',
+                                'error.code follows UPPER_SNAKE_CASE convention.',
+                            );
+                        } else {
+                            log(
+                                'warn',
+                                'error.code "' +
+                                    payload.code +
+                                    '" does not follow UPPER_SNAKE_CASE convention.',
+                            );
+                        }
+                    } else {
+                        log(
+                            'fail',
+                            'error.code is missing or not a non-empty string.',
+                        );
+                    }
+
+                    if (
+                        typeof payload.message === 'string' &&
+                        payload.message.length > 0
+                    ) {
+                        log(
+                            'pass',
+                            'error.message is present: "' +
+                                payload.message +
+                                '"',
+                        );
+                    } else {
+                        log(
+                            'fail',
+                            'error.message is missing or not a non-empty string.',
+                        );
+                    }
+
+                    if (typeof payload.fatal === 'boolean') {
+                        log(
+                            'pass',
+                            'error.fatal is a boolean: ' + payload.fatal,
+                        );
+                    } else {
+                        log(
+                            'warn',
+                            'error.fatal is missing or not a boolean (got ' +
+                                typeof payload.fatal +
+                                '). Should be true or false.',
+                        );
+                    }
+
+                    if (
+                        payload.details !== undefined &&
+                        (typeof payload.details !== 'object' ||
+                            payload.details === null)
+                    ) {
+                        log(
+                            'warn',
+                            'error.details is present but not an object.',
+                        );
+                    } else if (payload.details !== undefined) {
+                        log('pass', 'error.details is a valid object.');
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Message envelope validation
+                // ---------------------------------------------------------------
+
+                /**
+                 * Validate the common envelope of any plugin message.
+                 *
+                 * @param {object} data
+                 * @returns {boolean} true if envelope is valid
+                 */
+                function validateEnvelope(data) {
+                    var valid = true;
+
+                    if (data.api !== API_VERSION) {
+                        log(
+                            'fail',
+                            'Message api field is "' +
+                                data.api +
+                                '", expected "' +
+                                API_VERSION +
+                                '".',
+                        );
+                        valid = false;
+                    }
+
+                    var validTypes = ['loaded', 'ready', 'finished', 'error'];
+                    if (validTypes.indexOf(data.type) === -1) {
+                        log(
+                            'fail',
+                            'Unexpected message type from plugin: "' +
+                                data.type +
+                                '". Expected one of: ' +
+                                validTypes.join(', '),
+                        );
+                        valid = false;
+                    }
+
+                    if (
+                        data.request_id !== undefined &&
+                        typeof data.request_id !== 'string'
+                    ) {
+                        log('warn', 'request_id is present but not a string.');
+                    }
+
+                    return valid;
+                }
+
+                // ---------------------------------------------------------------
+                // Lifecycle timeout checks
+                // ---------------------------------------------------------------
+
+                var _loadedTimeout = null;
+                var _readyTimeout = null;
+
+                var LOADED_TIMEOUT_MS = 5000;
+                var READY_TIMEOUT_MS = 30000;
+
+                function startLoadedTimeout() {
+                    _loadedTimeout = setTimeout(function () {
+                        if (!state.pluginLoaded) {
+                            log(
+                                'fail',
+                                'Plugin did not send "loaded" within ' +
+                                    LOADED_TIMEOUT_MS / 1000 +
+                                    's. Does the plugin call SignagePlugin.create()?',
+                            );
+                        }
+                    }, LOADED_TIMEOUT_MS);
+                }
+
+                function startReadyTimeout() {
+                    _readyTimeout = setTimeout(function () {
+                        if (!state.pluginReady) {
+                            log(
+                                'warn',
+                                'Plugin did not send "ready" within ' +
+                                    READY_TIMEOUT_MS / 1000 +
+                                    's after config was sent.',
+                            );
+                        }
+                    }, READY_TIMEOUT_MS);
+                }
+
+                function clearTimeouts() {
+                    if (_loadedTimeout) clearTimeout(_loadedTimeout);
+                    if (_readyTimeout) clearTimeout(_readyTimeout);
+                    _loadedTimeout = null;
+                    _readyTimeout = null;
+                }
+
+                // ---------------------------------------------------------------
+                // Incoming message handler
+                // ---------------------------------------------------------------
+
+                window.addEventListener('message', function (event) {
+                    var data = event.data;
+
+                    // Ignore non-protocol messages
+                    if (
+                        !data ||
+                        typeof data !== 'object' ||
+                        data.api !== API_VERSION
+                    ) {
+                        return;
+                    }
+
+                    // Ignore messages we sent (host -> plugin echoes)
+                    if (data.type === 'config' || data.type === 'play') {
+                        return;
+                    }
+
+                    log(
+                        'msg-in',
+                        'Received "' + data.type + '" from plugin',
+                        JSON.stringify(data, null, 2),
+                    );
+
+                    // Validate envelope
+                    if (!validateEnvelope(data)) {
+                        return;
+                    }
+
+                    // Dispatch by type
+                    if (data.type === 'loaded') {
+                        if (state.pluginLoaded) {
+                            log('warn', '"loaded" received more than once.');
+                        }
+                        state.pluginLoaded = true;
+                        state.loadedPayload = data.payload || null;
+                        state.configSchema =
+                            data.payload && data.payload.config_schema
+                                ? data.payload.config_schema
+                                : null;
+                        validateLoadedPayload(data.payload);
+                        _updateStatus();
+                        _enableButtons();
+                    }
+
+                    if (data.type === 'ready') {
+                        if (state.pluginReady) {
+                            log('warn', '"ready" received more than once.');
+                        }
+                        state.pluginReady = true;
+                        validateReadyMessage();
+                        _updateStatus();
+                        _enableButtons();
+                    }
+
+                    if (data.type === 'finished') {
+                        validateFinishedMessage();
+                        state.pluginFinished = true;
+                        _updateStatus();
+                    }
+
+                    if (data.type === 'error') {
+                        validateErrorPayload(data.payload);
+                    }
+                });
+
+                // ---------------------------------------------------------------
+                // Plugin loading
+                // ---------------------------------------------------------------
+
+                function loadPlugin() {
+                    var url = elPluginUrl.value.trim();
+                    if (!url) {
+                        log('warn', 'No plugin URL provided.');
+                        return;
+                    }
+
+                    resetState();
+                    clearLog();
+
+                    log('info', 'Loading plugin: ' + url);
+
+                    // Remove existing iframe
+                    var existingIframe = elPreview.querySelector('iframe');
+                    if (existingIframe) {
+                        elPreview.removeChild(existingIframe);
+                    }
+
+                    // Hide empty state
+                    elEmptyState.style.display = 'none';
+
+                    // Create iframe
+                    var iframe = document.createElement('iframe');
+                    iframe.src = url;
+                    iframe.setAttribute(
+                        'sandbox',
+                        'allow-scripts allow-same-origin',
+                    );
+                    elPreview.appendChild(iframe);
+                    state.iframe = iframe;
+
+                    startLoadedTimeout();
+                    _updateStatus();
+                    _enableButtons();
+                }
+
+                // ---------------------------------------------------------------
+                // Config editing / sending
+                // ---------------------------------------------------------------
+
+                function openConfigEditor() {
+                    // Build a default config from the schema if available
+                    var defaultConfig = _buildDefaultConfig(state.configSchema);
+                    var payload = {
+                        instance_id: 'validator-' + Date.now(),
+                        config: defaultConfig,
+                    };
+                    elConfigJson.value = JSON.stringify(payload, null, 4);
+                    elConfigEditor.classList.add('open');
+                }
+
+                function closeConfigEditor() {
+                    elConfigEditor.classList.remove('open');
+                }
+
+                function sendConfig() {
+                    var raw = elConfigJson.value.trim();
+                    var payload;
+                    try {
+                        payload = JSON.parse(raw);
+                    } catch (e) {
+                        log(
+                            'fail',
+                            'Invalid JSON in config editor: ' + e.message,
+                        );
+                        return;
+                    }
+
+                    // Validate the config payload we are about to send
+                    if (!payload.instance_id) {
+                        log('warn', 'Config payload is missing instance_id.');
+                    }
+                    if (
+                        payload.config === undefined ||
+                        payload.config === null
+                    ) {
+                        log('warn', 'Config payload is missing config object.');
+                    }
+
+                    closeConfigEditor();
+                    state.configSent = true;
+                    sendToPlugin('config', payload);
+                    startReadyTimeout();
+                    _updateStatus();
+                }
+
+                /**
+                 * Build a default config object from a JSON-schema-like config_schema.
+                 *
+                 * @param {object} schema
+                 * @returns {object}
+                 */
+                function _buildDefaultConfig(schema) {
+                    var config = {};
+                    if (
+                        !schema ||
+                        !schema.properties ||
+                        typeof schema.properties !== 'object'
+                    ) {
+                        return config;
+                    }
+                    var props = schema.properties;
+                    var keys = Object.keys(props);
+                    for (var i = 0; i < keys.length; i++) {
+                        var key = keys[i];
+                        var prop = props[key];
+                        if (prop.default !== undefined) {
+                            config[key] = prop.default;
+                        } else if (prop.type === 'string') {
+                            config[key] = '';
+                        } else if (prop.type === 'number') {
+                            config[key] = 0;
+                        } else if (prop.type === 'boolean') {
+                            config[key] = false;
+                        }
+                    }
+                    return config;
+                }
+
+                // ---------------------------------------------------------------
+                // Play
+                // ---------------------------------------------------------------
+
+                function sendPlay() {
+                    if (!state.pluginReady) {
+                        log(
+                            'warn',
+                            'Sending "play" before plugin reported "ready".',
+                        );
+                    }
+                    state.playSent = true;
+                    sendToPlugin('play');
+                    _updateStatus();
+                }
+
+                // ---------------------------------------------------------------
+                // Reset
+                // ---------------------------------------------------------------
+
+                function resetState() {
+                    clearTimeouts();
+                    state.iframe = null;
+                    state.pluginLoaded = false;
+                    state.pluginReady = false;
+                    state.configSent = false;
+                    state.playSent = false;
+                    state.pluginFinished = false;
+                    state.loadedPayload = null;
+                    state.configSchema = null;
+                    _updateStatus();
+                    _enableButtons();
+                }
+
+                function resetAll() {
+                    var existingIframe = elPreview.querySelector('iframe');
+                    if (existingIframe) {
+                        elPreview.removeChild(existingIframe);
+                    }
+                    elEmptyState.style.display = '';
+                    resetState();
+                    clearLog();
+                }
+
+                // ---------------------------------------------------------------
+                // UI helpers
+                // ---------------------------------------------------------------
+
+                function _updateStatus() {
+                    var parts = [];
+                    if (!state.iframe) {
+                        elPluginStatus.textContent = 'No plugin loaded';
+                        return;
+                    }
+                    if (state.pluginFinished) {
+                        parts.push('finished');
+                    } else if (state.playSent) {
+                        parts.push('playing');
+                    } else if (state.pluginReady) {
+                        parts.push('ready');
+                    } else if (state.configSent) {
+                        parts.push('configuring...');
+                    } else if (state.pluginLoaded) {
+                        parts.push('loaded');
+                    } else {
+                        parts.push('loading...');
+                    }
+
+                    if (state.loadedPayload && state.loadedPayload.plugin) {
+                        var p = state.loadedPayload.plugin;
+                        elPluginStatus.textContent =
+                            p.name +
+                            ' v' +
+                            p.version +
+                            '  |  ' +
+                            parts.join(', ');
+                    } else {
+                        elPluginStatus.textContent =
+                            'Plugin  |  ' + parts.join(', ');
+                    }
+                }
+
+                function _enableButtons() {
+                    elBtnConfig.disabled = !state.pluginLoaded;
+                    elBtnPlay.disabled = !state.pluginLoaded;
+                    elBtnReset.disabled = !state.iframe;
+                }
+
+                // ---------------------------------------------------------------
+                // Event listeners
+                // ---------------------------------------------------------------
+
+                elBtnLoad.addEventListener('click', loadPlugin);
+                elPluginUrl.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        loadPlugin();
+                    }
+                });
+                elBtnConfig.addEventListener('click', openConfigEditor);
+                elBtnPlay.addEventListener('click', sendPlay);
+                elBtnReset.addEventListener('click', resetAll);
+                elBtnClearLog.addEventListener('click', clearLog);
+                elBtnConfigCancel.addEventListener('click', closeConfigEditor);
+                elBtnConfigSend.addEventListener('click', sendConfig);
+
+                // Close modal on backdrop click
+                elConfigEditor.addEventListener('click', function (e) {
+                    if (e.target === elConfigEditor) {
+                        closeConfigEditor();
+                    }
+                });
+            })();
+        </script>
+    </body>
+</html>
