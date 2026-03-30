@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Instagram Plugin</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
+            }
+            #embed-container {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                overflow: hidden;
+            }
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="embed-container"></div>
+        <div id="error-overlay"></div>
+
+        <script src="plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.url           (string) - Full Instagram post or reel URL
+                //                                   (e.g. https://www.instagram.com/p/ABC123/)
+                //   config.shortcode     (string, optional) - Instagram shortcode
+                //                                   (e.g. ABC123). Used if config.url
+                //                                   is not provided.
+                //   config.content_type  (string, optional) - 'post' or 'reel'.
+                //                                   Defaults to 'post'. Only used
+                //                                   when providing a shortcode.
+                //   config.show_caption  (boolean, default false) - Show the post caption
+                //   config.max_width     (number, default 540) - Max width in pixels
+                //
+                // The host may also supply the Instagram URL via content.url
+                // instead of config.url. The plugin will use whichever is available.
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        url: {
+                            type: 'string',
+                            title: 'Instagram URL',
+                            description:
+                                'Full URL of an Instagram post or reel (e.g. https://www.instagram.com/p/ABC123/ or https://www.instagram.com/reel/ABC123/).',
+                        },
+                        shortcode: {
+                            type: 'string',
+                            title: 'Shortcode',
+                            description:
+                                'Instagram shortcode (e.g. ABC123). Used when a full URL is not provided.',
+                        },
+                        content_type: {
+                            type: 'string',
+                            title: 'Content Type',
+                            description:
+                                'Type of content: "post" or "reel". Only used with shortcode.',
+                            default: 'post',
+                            enum: ['post', 'reel'],
+                        },
+                        show_caption: {
+                            type: 'boolean',
+                            title: 'Show Caption',
+                            description:
+                                'Whether to display the post caption below the media.',
+                            default: false,
+                        },
+                        max_width: {
+                            type: 'number',
+                            title: 'Max Width (px)',
+                            description:
+                                'Maximum width of the embed in pixels (min 326, max 540).',
+                            default: 540,
+                        },
+                    },
+                };
+
+                var embedScriptLoaded = false;
+                var embedScriptLoading = false;
+                var pendingPlay = false;
+
+                // Create the signage plugin
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'instagram-embed',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: true,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        // Resolve the Instagram URL
+                        var url = resolveUrl(config, payload.content);
+
+                        if (!url) {
+                            plugin.error({
+                                code: 'MISSING_URL',
+                                message:
+                                    'No Instagram URL or shortcode provided in config, and no valid URL in content.',
+                                fatal: true,
+                            });
+                            showError('Missing Instagram URL or shortcode');
+                            return;
+                        }
+
+                        // Validate the URL looks like an Instagram post or reel
+                        if (!isValidInstagramUrl(url)) {
+                            plugin.error({
+                                code: 'INVALID_URL',
+                                message:
+                                    'The provided URL does not appear to be a valid Instagram post or reel URL.',
+                                fatal: true,
+                                details: { url: url },
+                            });
+                            showError('Invalid Instagram URL');
+                            return;
+                        }
+
+                        // Hide any previous error
+                        var overlay = document.getElementById('error-overlay');
+                        if (overlay) {
+                            overlay.style.display = 'none';
+                        }
+
+                        // Build the embed blockquote
+                        var container =
+                            document.getElementById('embed-container');
+                        if (!container) {
+                            plugin.error({
+                                code: 'MISSING_CONTAINER',
+                                message:
+                                    'Embed container element not found in the DOM.',
+                                fatal: true,
+                            });
+                            showError('Internal error: missing container');
+                            return;
+                        }
+
+                        var showCaption =
+                            config.show_caption !== undefined
+                                ? config.show_caption
+                                : false;
+                        var maxWidth =
+                            config.max_width !== undefined
+                                ? config.max_width
+                                : 540;
+
+                        // Clamp max_width to Instagram's allowed range
+                        maxWidth = Math.max(326, Math.min(540, maxWidth));
+
+                        // Clear any existing embed
+                        container.innerHTML = '';
+
+                        // Create the blockquote that Instagram's embed.js will process
+                        var blockquote = document.createElement('blockquote');
+                        blockquote.className = 'instagram-media';
+                        blockquote.setAttribute('data-instgrm-permalink', url);
+                        blockquote.setAttribute('data-instgrm-version', '14');
+
+                        if (!showCaption) {
+                            blockquote.setAttribute(
+                                'data-instgrm-captioned',
+                                '',
+                            );
+                        }
+
+                        blockquote.style.maxWidth = maxWidth + 'px';
+                        blockquote.style.width = '100%';
+                        blockquote.style.margin = '0 auto';
+
+                        container.appendChild(blockquote);
+
+                        // Load or re-process the Instagram embed script
+                        if (embedScriptLoaded) {
+                            processEmbed();
+                        } else if (!embedScriptLoading) {
+                            loadEmbedScript(function () {
+                                processEmbed();
+                            });
+                        }
+                        // If script is loading, it will call processEmbed via the callback
+                    },
+
+                    onPlay: function () {
+                        // Instagram embeds are static — nothing to "play".
+                        // The embed is already visible once ready.
+                        pendingPlay = false;
+                    },
+                });
+
+                // ---------------------------------------------------------------
+                // Instagram embed.js loader
+                // ---------------------------------------------------------------
+
+                function loadEmbedScript(callback) {
+                    embedScriptLoading = true;
+
+                    window._igPendingInit = callback;
+
+                    var tag = document.createElement('script');
+                    tag.src = 'https://www.instagram.com/embed.js';
+                    tag.async = true;
+
+                    tag.onload = function () {
+                        embedScriptLoaded = true;
+                        embedScriptLoading = false;
+                        if (window._igPendingInit) {
+                            window._igPendingInit();
+                            window._igPendingInit = null;
+                        }
+                    };
+
+                    tag.onerror = function () {
+                        plugin.error({
+                            code: 'EMBED_SCRIPT_LOAD_FAILED',
+                            message:
+                                'Failed to load Instagram embed.js script.',
+                            fatal: true,
+                        });
+                        showError('Failed to load Instagram embed');
+                    };
+
+                    document.head.appendChild(tag);
+                }
+
+                // ---------------------------------------------------------------
+                // Embed processing
+                // ---------------------------------------------------------------
+
+                function processEmbed() {
+                    if (
+                        window.instgrm &&
+                        window.instgrm.Embeds &&
+                        typeof window.instgrm.Embeds.process === 'function'
+                    ) {
+                        window.instgrm.Embeds.process();
+
+                        // Wait for Instagram to render the iframe
+                        waitForEmbedIframe(function (success) {
+                            if (success) {
+                                plugin.ready();
+                            } else {
+                                plugin.error({
+                                    code: 'EMBED_RENDER_TIMEOUT',
+                                    message:
+                                        'Instagram embed did not render within the expected time.',
+                                    fatal: true,
+                                });
+                                showError('Instagram embed failed to load');
+                            }
+                        });
+                    } else {
+                        plugin.error({
+                            code: 'EMBED_API_UNAVAILABLE',
+                            message:
+                                'Instagram embed API (instgrm.Embeds.process) is not available after script load.',
+                            fatal: true,
+                        });
+                        showError('Instagram embed API unavailable');
+                    }
+                }
+
+                /**
+                 * Poll for the Instagram iframe to appear in the container.
+                 * Instagram's embed.js replaces the blockquote with an iframe.
+                 *
+                 * @param {function} callback - Called with true on success, false on timeout
+                 */
+                function waitForEmbedIframe(callback) {
+                    var container = document.getElementById('embed-container');
+                    var maxAttempts = 60; // 60 * 500ms = 30 seconds
+                    var attempts = 0;
+
+                    var interval = setInterval(function () {
+                        attempts++;
+
+                        var iframe = container
+                            ? container.querySelector('iframe')
+                            : null;
+
+                        if (iframe) {
+                            clearInterval(interval);
+                            callback(true);
+                            return;
+                        }
+
+                        if (attempts >= maxAttempts) {
+                            clearInterval(interval);
+                            callback(false);
+                        }
+                    }, 500);
+                }
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Resolve the Instagram embed URL from config and content.
+                 *
+                 * Priority:
+                 *   1. config.url (explicit URL)
+                 *   2. content.url (host-provided URL)
+                 *   3. config.shortcode + config.content_type (build URL from shortcode)
+                 *
+                 * @param {object} config - Plugin configuration
+                 * @param {object} content - Content object from the host
+                 * @returns {string|null} Instagram URL or null if unresolvable
+                 */
+                function resolveUrl(config, content) {
+                    // 1. Explicit URL from config
+                    if (config.url && typeof config.url === 'string') {
+                        return normalizeUrl(config.url);
+                    }
+
+                    // 2. URL from content
+                    if (
+                        content &&
+                        content.url &&
+                        typeof content.url === 'string'
+                    ) {
+                        return normalizeUrl(content.url);
+                    }
+
+                    // 3. Build from shortcode
+                    if (
+                        config.shortcode &&
+                        typeof config.shortcode === 'string'
+                    ) {
+                        var contentType =
+                            config.content_type === 'reel' ? 'reel' : 'p';
+                        return (
+                            'https://www.instagram.com/' +
+                            contentType +
+                            '/' +
+                            encodeURIComponent(config.shortcode) +
+                            '/'
+                        );
+                    }
+
+                    return null;
+                }
+
+                /**
+                 * Normalise an Instagram URL to ensure it has a trailing slash
+                 * and uses the canonical hostname.
+                 *
+                 * @param {string} url
+                 * @returns {string}
+                 */
+                function normalizeUrl(url) {
+                    // Ensure trailing slash (Instagram requires it for embeds)
+                    if (url.charAt(url.length - 1) !== '/') {
+                        url = url + '/';
+                    }
+                    return url;
+                }
+
+                /**
+                 * Check whether a URL looks like a valid Instagram post or reel URL.
+                 *
+                 * @param {string} url
+                 * @returns {boolean}
+                 */
+                function isValidInstagramUrl(url) {
+                    // Match instagram.com/p/SHORTCODE/ or instagram.com/reel/SHORTCODE/
+                    var pattern =
+                        /^https?:\/\/(www\.)?instagram\.com\/(p|reel)\/[A-Za-z0-9_-]+\/?/;
+                    return pattern.test(url);
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>
