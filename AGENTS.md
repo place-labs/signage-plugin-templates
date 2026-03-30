@@ -2,48 +2,54 @@
 
 ## Project Overview
 
-This is a **vanilla JavaScript** project containing a signage plugin SDK (`plugin.js`) and
-self-contained HTML plugin templates (e.g., `youtube.html`). Plugins run as iframes inside a
-host signage application and communicate via `window.postMessage` using the `signage-plugin/v1`
-protocol. There is **no build step**, no bundler, no package manager, and no framework.
+Vanilla JavaScript project: a signage plugin SDK (`plugin.js`) and self-contained HTML
+plugin templates. Plugins run as iframes inside a host signage application and communicate
+via `window.postMessage` using the `signage-plugin/v1` protocol. There is **no build step**,
+no bundler, no package manager, and no framework.
 
-The default branch is `trunk`.
+Default branch: `trunk`
 
 ## Build / Lint / Test Commands
 
-There is no `package.json`. No build, test, or lint scripts are configured.
+There is no `package.json`. No build, test, or lint scripts exist.
 
 ### Formatting
 
-Prettier is configured via `.prettierrc`. Run it with a global install:
+Prettier is configured via `.prettierrc` (single quotes, 4-space indent). Run with a
+global install:
 
 ```bash
-prettier --write .
-prettier --check .          # CI-friendly check
+prettier --write .          # format all files
+prettier --check .          # CI-friendly check (exit 1 on diff)
+prettier --write foo.html   # format a single file
 ```
 
 ### Testing
 
-No test framework is set up. There are no test files. If tests are added in the future,
-keep them alongside source files or in a `tests/` directory and document the runner here.
+No test framework is set up. No test files exist. If tests are added, keep them alongside
+source files or in a `tests/` directory and document the runner here.
 
-### Validation
+### Manual Validation
 
-Open HTML templates directly in a browser or serve them locally:
+Use the built-in validator tool to test plugins locally:
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Then load the HTML file in a browser to verify it functions within the signage host protocol.
+Open `http://localhost:8080/validator.html`, enter a plugin URL (e.g. `youtube.html`), and
+walk through the Load -> Send Config -> Send Play lifecycle. The validator logs protocol
+compliance checks (PASS/FAIL/WARN) in real time.
 
 ## Architecture
 
 ```
 plugin.js          # Core SDK - IIFE exposing global `SignagePlugin`
-youtube.html       # Example template - YouTube player plugin
-*.html             # Additional plugin templates follow the same pattern
-.prettierrc        # Prettier config
+youtube.html       # YouTube player plugin template
+instagram.html     # Instagram embed plugin template
+validator.html     # Dev tool - protocol compliance validator (not a plugin)
+.prettierrc        # Prettier config: { singleQuote: true, tabWidth: 4 }
+CLAUDE.md          # Duplicate of AGENTS.md (kept in sync)
 ```
 
 ### Plugin Lifecycle (postMessage protocol)
@@ -51,11 +57,11 @@ youtube.html       # Example template - YouTube player plugin
 ```
 Host                          Plugin (iframe)
   |--- loaded? ---------------->|
-  |<-------- loaded ------------|
-  |--------- config ----------->|  (host sends configuration)
-  |<-------- ready -------------|  (plugin signals readiness)
-  |--------- play ------------->|  (host triggers playback)
-  |<-------- finished ----------|  (plugin signals completion)
+  |<-------- loaded ------------|   (plugin sends metadata + capabilities)
+  |--------- config ----------->|   (host sends configuration)
+  |<-------- ready -------------|   (plugin signals readiness)
+  |--------- play ------------->|   (host triggers playback)
+  |<-------- finished ----------|   (plugin signals completion)
 ```
 
 Error reporting at any stage: `plugin.error({ code, message, fatal, details })`
@@ -64,10 +70,11 @@ Error reporting at any stage: `plugin.error({ code, message, fatal, details })`
 
 ### Formatting (Prettier)
 
-- **Single quotes** for all strings
-- **4-space indentation** (no tabs)
+- **Single quotes** for all strings (`singleQuote: true`)
+- **4-space indentation** (`tabWidth: 4`), no tabs
 - **Semicolons** required (Prettier default)
-- All other Prettier defaults apply
+- **Trailing commas** on all multi-line structures (Prettier 3 default: `"all"`)
+- Print width 80 (Prettier default)
 
 ### JavaScript Version
 
@@ -128,7 +135,7 @@ Every plugin template must:
 7. Call `SignagePlugin.create()` with: `plugin` metadata, `capabilities`, `config_schema`,
    `onConfig` handler, and `onPlay` handler
 8. Call `plugin.ready()` when the plugin is ready to receive playback
-9. Call `plugin.finished()` when playback ends
+9. Call `plugin.finished()` when playback ends (if `can_finish: true`)
 10. Call `plugin.error({...})` on any failure
 11. Include a `showError(msg)` function and `#error-overlay` element for visual errors
 
