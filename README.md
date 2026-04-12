@@ -51,6 +51,8 @@ Host                              Plugin (iframe)
   |                                  |  onPlay callback fires
   |                                  |  (plugin plays content)
   |                                  |
+  |<-------- interaction ------------|  plugin.interaction(...) (optional)
+  |                                  |
   |<----------- finished ------------|  plugin.finished() (if can_finish=true)
   |                                  |
   |<----------- error --------------|  plugin.error({...}) at any point
@@ -62,9 +64,11 @@ Host                              Plugin (iframe)
    optional content and timing info). The plugin processes this and prepares.
 3. **Ready** -- The plugin signals it is ready for playback.
 4. **Play** -- The host tells the plugin to start. The plugin begins playback.
-5. **Finished** -- The plugin signals playback is complete (only for plugins that
+5. **Interaction** -- Optional. During playback, the plugin can notify the host
+   about a user interaction and optionally include a suggested `new_duration`.
+6. **Finished** -- The plugin signals playback is complete (only for plugins that
    declare `can_finish: true`).
-6. **Error** -- The plugin can report errors at any point in the lifecycle.
+7. **Error** -- The plugin can report errors at any point in the lifecycle.
 
 ---
 
@@ -160,6 +164,16 @@ plugin.error({
     fatal: true,               // Unrecoverable error? (default: false)
     details: { status: 404 }   // Additional context (default: {})
 });
+```
+
+#### `plugin.interaction(duration)`
+
+Reports an interaction event to the host. Pass a numeric `duration` to include a
+`new_duration` value in the payload. If omitted, the SDK sends `0`.
+
+```js
+plugin.interaction();
+plugin.interaction(30);
 ```
 
 #### `plugin.getState()`
@@ -265,6 +279,7 @@ All messages conform to this envelope:
 |---|---|---|
 | `loaded` | `{ plugin, capabilities, config_schema }` | Plugin initialized and ready for config |
 | `ready` | none | Plugin prepared and ready for playback |
+| `interaction` | `{ new_duration }` | Optional interaction event during playback |
 | `finished` | none | Playback complete |
 | `error` | `{ code, message, fatal, details }` | Error report |
 
@@ -539,6 +554,10 @@ The validation log uses color-coded entries:
 **Protocol envelope checks:**
 - `api` field equals `'signage-plugin/v1'`
 - `type` is a valid plugin message type (`loaded`, `ready`, `finished`, `error`)
+
+The SDK also supports an `interaction` plugin message. The current validator does
+not yet recognize it, so interactive plugins may log a validator failure if they
+emit `interaction` during testing.
 
 **Loaded message checks:**
 - Payload is present
