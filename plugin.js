@@ -5,6 +5,7 @@ const API_VERSION = 'signage-plugin/v1';
 export type SignagePluginMessageType =
     | 'loaded'
     | 'ready'
+    | 'interaction'
     | 'finished'
     | 'error';
 export type SignageHostMessageType = 'config' | 'play';
@@ -41,6 +42,10 @@ export type PluginConfigPayload = {
     timing?: {
         scheduled_duration_ms?: number;
     };
+};
+
+export type PluginInteractionPayload = {
+    new_duration?: number;
 };
 
 export type PluginErrorPayload = {
@@ -253,6 +258,15 @@ var SignagePlugin = (function () {
                     content: state.content,
                     timing: state.timing,
                 };
+            },
+
+            /**
+             * Post an interaction event to host
+             */
+            interaction: function (duration = 0) {
+                _postToHost('interaction', {
+                    new_duration: duration,
+                });
             },
 
             /**
