@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>News Ticker Plugin</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
+            }
+            /* NOTE: all sizing uses vh units so the ticker scales purely from
+               the iframe height. The host embeds this plugin as a narrow,
+               full-width strip whose height may vary. */
+            #ticker {
+                position: absolute;
+                inset: 0;
+                overflow: hidden;
+                opacity: 1;
+                transition: opacity 0.4s ease;
+            }
+            #ticker.fading {
+                opacity: 0;
+            }
+            #track {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                height: 100%;
+                will-change: transform;
+            }
+            .seq {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                height: 100%;
+                flex-shrink: 0;
+            }
+            .ticker-item {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                height: 100%;
+                flex-shrink: 0;
+            }
+            .ticker-item img {
+                height: 72vh;
+                width: auto;
+                max-width: 300vh;
+                object-fit: cover;
+                border-radius: 6vh;
+                margin-right: 18vh;
+            }
+            .ticker-item .title {
+                font-family:
+                    -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+                    sans-serif;
+                font-size: 34vh;
+                font-weight: 600;
+                line-height: 1;
+                color: #fff;
+                white-space: nowrap;
+            }
+            /* Gap between adjacent items. The spacer that closes the loop
+               (between the last and first item) is double width. */
+            .gap {
+                width: 90vh;
+                height: 100%;
+                flex-shrink: 0;
+            }
+            .gap--loop {
+                width: 180vh;
+            }
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 0 2vw;
+                font-size: 34vh;
+                white-space: nowrap;
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="ticker">
+            <div id="track"></div>
+        </div>
+        <div id="error-overlay"></div>
+
+        <script src="plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.feed_url     (string) - RSS or Atom feed URL. The host
+                //                                  may also supply it via
+                //                                  content.url.
+                //   config.max_items    (number, default 10) - Number of headlines
+                //                                  to display.
+                //   config.scroll_speed (number, default 1.5) - Scroll speed in
+                //                                  strip-heights per second, so
+                //                                  speed scales with iframe size.
+                //   config.show_images  (boolean, default true) - Show article
+                //                                  images where available.
+                //
+                // The feed is fetched through the host's relative proxy route
+                // (PROXY_ROUTE) so feeds without CORS headers still work.
+                //
+                // NOTE: the feed must be readable from the browser (served with
+                // CORS headers, or proxied by the host). Refresh cadence is
+                // taken from the response Cache-Control max-age / Expires
+                // headers (both CORS-safelisted), falling back to the RSS
+                // <ttl> element, then a 5 minute default.
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        feed_url: {
+                            type: 'string',
+                            title: 'RSS Feed URL',
+                            description:
+                                'URL of an RSS 2.0 or Atom news feed (must be CORS-accessible).',
+                        },
+                        max_items: {
+                            type: 'number',
+                            title: 'Headline Count',
+                            description:
+                                'Number of top headlines to scroll (default 10).',
+                            default: 10,
+                        },
+                        scroll_speed: {
+                            type: 'number',
+                            title: 'Scroll Speed',
+                            description:
+                                'Scroll speed in strip-heights per second (default 1.5).',
+                            default: 1.5,
+                        },
+                        show_images: {
+                            type: 'boolean',
+                            title: 'Show Images',
+                            description:
+                                'Display article images where available.',
+                            default: true,
+                        },
+                    },
+                    required: ['feed_url'],
+                };
+
+                // Relative proxy route provided by the host in production.
+                // Accepts a fully qualified, URL-encoded URI and forwards the
+                // response, sidestepping CORS restrictions on the feed itself.
+                var PROXY_ROUTE = '/api/engine/v2/proxy?url=';
+
+                var DEFAULT_REFRESH_SECONDS = 300;
+                var MIN_REFRESH_SECONDS = 60;
+                var MAX_REFRESH_SECONDS = 86400;
+                var RETRY_SECONDS = 60;
+                var FADE_MS = 450;
+
+                var tickerEl = document.getElementById('ticker');
+                var trackEl = document.getElementById('track');
+
+                var feedUrl = null;
+                var maxItems = 10;
+                var scrollSpeed = 1.5;
+                var showImages = true;
+
+                var currentItems = [];
+                var currentSignature = null;
+                var seqWidth = 0;
+                var offset = 0;
+                var lastFrameTime = null;
+                var rafId = null;
+                var refreshTimer = null;
+                var resizeTimer = null;
+                var shouldPlay = false;
+                var readySent = false;
+                var hasLoadedOnce = false;
+
+                // Create the signage plugin
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'news-ticker',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        feedUrl = resolveFeedUrl(config, payload.content);
+                        if (!feedUrl) {
+                            plugin.error({
+                                code: 'MISSING_FEED_URL',
+                                message:
+                                    'No RSS feed URL provided in config.feed_url or content.url.',
+                                fatal: true,
+                            });
+                            showError('Missing RSS feed URL');
+                            return;
+                        }
+
+                        maxItems =
+                            config.max_items !== undefined &&
+                            config.max_items > 0
+                                ? Math.floor(config.max_items)
+                                : 10;
+                        scrollSpeed =
+                            config.scroll_speed !== undefined &&
+                            config.scroll_speed > 0
+                                ? config.scroll_speed
+                                : 1.5;
+                        showImages =
+                            config.show_images !== undefined
+                                ? config.show_images
+                                : true;
+
+                        // Reset any previous state before (re)configuring
+                        cleanup();
+                        hideError();
+
+                        fetchFeed();
+                    },
+
+                    onPlay: function () {
+                        shouldPlay = true;
+                        startScrolling();
+                    },
+                });
+
+                // ---------------------------------------------------------------
+                // Feed fetching and refresh scheduling
+                // ---------------------------------------------------------------
+
+                function fetchFeed() {
+                    var xhr = new XMLHttpRequest();
+                    var requestUrl = PROXY_ROUTE + encodeURIComponent(feedUrl);
+
+                    xhr.open('GET', requestUrl, true);
+
+                    xhr.onload = function () {
+                        if (xhr.status < 200 || xhr.status >= 300) {
+                            handleFetchFailure(
+                                'Feed request returned HTTP ' + xhr.status,
+                                { status: xhr.status },
+                            );
+                            return;
+                        }
+                        handleFeedResponse(xhr);
+                    };
+
+                    xhr.onerror = function () {
+                        handleFetchFailure(
+                            'Feed request failed (network error or CORS blocked).',
+                            {},
+                        );
+                    };
+
+                    xhr.send();
+                }
+
+                function handleFeedResponse(xhr) {
+                    var doc;
+                    try {
+                        doc = new DOMParser().parseFromString(
+                            xhr.responseText,
+                            'text/xml',
+                        );
+                    } catch (e) {
+                        doc = null;
+                    }
+
+                    if (
+                        !doc ||
+                        doc.getElementsByTagName('parsererror').length > 0
+                    ) {
+                        handleFetchFailure(
+                            'Feed response could not be parsed as XML.',
+                            {},
+                        );
+                        return;
+                    }
+
+                    var items = parseFeed(doc);
+
+                    if (items.length === 0) {
+                        handleFetchFailure('Feed contains no items.', {});
+                        return;
+                    }
+
+                    hasLoadedOnce = true;
+                    applyItems(items.slice(0, maxItems));
+                    scheduleRefresh(resolveRefreshSeconds(xhr, doc));
+
+                    if (!readySent) {
+                        readySent = true;
+                        plugin.ready();
+                    }
+                }
+
+                function handleFetchFailure(message, details) {
+                    details = details || {};
+                    details.feed_url = feedUrl;
+
+                    if (!hasLoadedOnce) {
+                        // Nothing on screen yet - this is fatal
+                        plugin.error({
+                            code: 'FEED_LOAD_FAILED',
+                            message: message,
+                            fatal: true,
+                            details: details,
+                        });
+                        showError('Unable to load news feed');
+                    } else {
+                        // Keep scrolling the stale headlines and retry
+                        plugin.error({
+                            code: 'FEED_REFRESH_FAILED',
+                            message: message,
+                            fatal: false,
+                            details: details,
+                        });
+                    }
+                    scheduleRefresh(RETRY_SECONDS);
+                }
+
+                /**
+                 * Determine how long to wait before re-checking the feed.
+                 *
+                 * Priority:
+                 *   1. Cache-Control: max-age (seconds)
+                 *   2. Expires header (relative to the response Date, or now)
+                 *   3. RSS <ttl> channel element (minutes)
+                 *   4. DEFAULT_REFRESH_SECONDS
+                 *
+                 * @param {XMLHttpRequest} xhr - Completed feed request
+                 * @param {Document} doc - Parsed feed document
+                 * @returns {number} Refresh interval in seconds (clamped)
+                 */
+                function resolveRefreshSeconds(xhr, doc) {
+                    var seconds = null;
+
+                    var cacheControl = safeHeader(xhr, 'Cache-Control');
+                    if (cacheControl) {
+                        var match = /max-age\s*=\s*(\d+)/i.exec(cacheControl);
+                        if (match) {
+                            seconds = parseInt(match[1], 10);
+                        }
+                    }
+
+                    if (seconds === null) {
+                        var expires = safeHeader(xhr, 'Expires');
+                        if (expires) {
+                            var expiresAt = Date.parse(expires);
+                            if (!isNaN(expiresAt)) {
+                                var dateHeader = safeHeader(xhr, 'Date');
+                                var baseline = dateHeader
+                                    ? Date.parse(dateHeader)
+                                    : NaN;
+                                if (isNaN(baseline)) {
+                                    baseline = Date.now();
+                                }
+                                seconds = Math.floor(
+                                    (expiresAt - baseline) / 1000,
+                                );
+                            }
+                        }
+                    }
+
+                    if (seconds === null) {
+                        var ttlNodes = doc.getElementsByTagName('ttl');
+                        if (ttlNodes.length > 0) {
+                            var minutes = parseInt(nodeText(ttlNodes[0]), 10);
+                            if (!isNaN(minutes) && minutes > 0) {
+                                seconds = minutes * 60;
+                            }
+                        }
+                    }
+
+                    if (seconds === null || isNaN(seconds)) {
+                        seconds = DEFAULT_REFRESH_SECONDS;
+                    }
+
+                    return Math.max(
+                        MIN_REFRESH_SECONDS,
+                        Math.min(MAX_REFRESH_SECONDS, seconds),
+                    );
+                }
+
+                function scheduleRefresh(seconds) {
+                    if (refreshTimer) {
+                        clearTimeout(refreshTimer);
+                    }
+                    refreshTimer = setTimeout(fetchFeed, seconds * 1000);
+                }
+
+                /**
+                 * Read a response header, tolerating browsers that throw on
+                 * headers not exposed via CORS.
+                 */
+                function safeHeader(xhr, name) {
+                    try {
+                        return xhr.getResponseHeader(name);
+                    } catch (e) {
+                        return null;
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Feed parsing (RSS 2.0 and Atom)
+                // ---------------------------------------------------------------
+
+                /**
+                 * Parse a feed document into a list of headline items.
+                 *
+                 * @param {Document} doc - XML document
+                 * @returns {Array<{title: string, image: string|null}>}
+                 */
+                function parseFeed(doc) {
+                    var items = [];
+                    var nodes = doc.getElementsByTagName('item');
+                    var i;
+
+                    if (nodes.length === 0) {
+                        // Atom feeds use <entry>
+                        nodes = doc.getElementsByTagName('entry');
+                    }
+
+                    for (i = 0; i < nodes.length; i++) {
+                        var title = extractTitle(nodes[i]);
+                        if (!title) {
+                            continue;
+                        }
+                        items.push({
+                            title: title,
+                            image: showImages ? extractImage(nodes[i]) : null,
+                        });
+                    }
+
+                    return items;
+                }
+
+                function extractTitle(node) {
+                    var titles = node.getElementsByTagName('title');
+                    if (titles.length === 0) {
+                        return null;
+                    }
+                    // Strip any embedded HTML tags and collapse whitespace
+                    var text = nodeText(titles[0])
+                        .replace(/<[^>]*>/g, '')
+                        .replace(/\s+/g, ' ')
+                        .replace(/^\s+|\s+$/g, '');
+                    return text || null;
+                }
+
+                /**
+                 * Find the best available image URL for a feed item.
+                 *
+                 * Checks, in order: media:content, media:thumbnail, enclosure,
+                 * itunes:image, then the first <img> in the description HTML.
+                 *
+                 * @param {Element} node - Feed item element
+                 * @returns {string|null}
+                 */
+                function extractImage(node) {
+                    var url;
+
+                    url = mediaUrl(node, 'content');
+                    if (url) {
+                        return url;
+                    }
+
+                    url = mediaUrl(node, 'thumbnail');
+                    if (url) {
+                        return url;
+                    }
+
+                    var enclosures = node.getElementsByTagName('enclosure');
+                    var i;
+                    for (i = 0; i < enclosures.length; i++) {
+                        var type = enclosures[i].getAttribute('type') || '';
+                        var href = enclosures[i].getAttribute('url');
+                        if (href && type.indexOf('image/') === 0) {
+                            return href;
+                        }
+                    }
+
+                    var itunesImages = node.getElementsByTagNameNS
+                        ? node.getElementsByTagNameNS('*', 'image')
+                        : [];
+                    for (i = 0; i < itunesImages.length; i++) {
+                        var ihref = itunesImages[i].getAttribute('href');
+                        if (ihref) {
+                            return ihref;
+                        }
+                    }
+
+                    // Fall back to the first <img src="..."> in the
+                    // description / summary / content HTML
+                    var descNodes = node.getElementsByTagName('description');
+                    if (descNodes.length === 0) {
+                        descNodes = node.getElementsByTagName('summary');
+                    }
+                    if (descNodes.length === 0 && node.getElementsByTagNameNS) {
+                        descNodes = node.getElementsByTagNameNS('*', 'encoded');
+                    }
+                    if (descNodes.length > 0) {
+                        var html = nodeText(descNodes[0]);
+                        var match = /<img[^>]+src=["']([^"']+)["']/i.exec(html);
+                        if (match) {
+                            return match[1];
+                        }
+                    }
+
+                    return null;
+                }
+
+                /**
+                 * Extract a URL from a media: namespaced element (media:content
+                 * or media:thumbnail), preferring image types.
+                 */
+                function mediaUrl(node, localName) {
+                    if (!node.getElementsByTagNameNS) {
+                        return null;
+                    }
+                    var elements = node.getElementsByTagNameNS('*', localName);
+                    var i;
+                    for (i = 0; i < elements.length; i++) {
+                        var el = elements[i];
+                        var url = el.getAttribute('url');
+                        if (!url) {
+                            continue;
+                        }
+                        var medium = el.getAttribute('medium');
+                        var type = el.getAttribute('type') || '';
+                        if (
+                            localName === 'thumbnail' ||
+                            medium === 'image' ||
+                            type.indexOf('image/') === 0 ||
+                            (!medium && !type)
+                        ) {
+                            return url;
+                        }
+                    }
+                    return null;
+                }
+
+                function nodeText(node) {
+                    return node.textContent || '';
+                }
+
+                // ---------------------------------------------------------------
+                // Ticker construction
+                // ---------------------------------------------------------------
+
+                /**
+                 * Apply a fresh set of items to the ticker. If content is
+                 * unchanged this is a no-op; otherwise the ticker crossfades
+                 * to the rebuilt track so mid-scroll swaps are not jarring.
+                 */
+                function applyItems(items) {
+                    var signature = itemSignature(items);
+                    if (signature === currentSignature) {
+                        return;
+                    }
+
+                    var firstBuild = currentSignature === null;
+                    currentSignature = signature;
+                    currentItems = items;
+
+                    if (firstBuild) {
+                        rebuildTrack();
+                        return;
+                    }
+
+                    tickerEl.className = 'fading';
+                    setTimeout(function () {
+                        rebuildTrack();
+                        tickerEl.className = '';
+                    }, FADE_MS);
+                }
+
+                function itemSignature(items) {
+                    var parts = [];
+                    var i;
+                    for (i = 0; i < items.length; i++) {
+                        parts.push(
+                            items[i].title + '|' + (items[i].image || ''),
+                        );
+                    }
+                    return parts.join('\n');
+                }
+
+                /**
+                 * Rebuild the scrolling track from currentItems.
+                 *
+                 * The track holds N copies of a "sequence": each item followed
+                 * by a gap spacer, with the final spacer double width so the
+                 * loop point reads as a clear break between the last and first
+                 * headline. Enough copies are appended to cover the viewport
+                 * at any scroll offset, and the animation wraps the offset
+                 * modulo one sequence width for a seamless infinite scroll.
+                 */
+                function rebuildTrack() {
+                    trackEl.innerHTML = '';
+                    offset = 0;
+                    seqWidth = 0;
+
+                    if (currentItems.length === 0) {
+                        return;
+                    }
+
+                    var firstSeq = buildSequence(currentItems);
+                    trackEl.appendChild(firstSeq);
+
+                    seqWidth = firstSeq.getBoundingClientRect().width;
+                    if (seqWidth < 1) {
+                        return;
+                    }
+
+                    // Cover the viewport at any offset in [0, seqWidth)
+                    var copies = Math.ceil(window.innerWidth / seqWidth) + 1;
+                    var i;
+                    for (i = 0; i < copies; i++) {
+                        trackEl.appendChild(buildSequence(currentItems));
+                    }
+
+                    trackEl.style.transform = 'translate3d(0, 0, 0)';
+                }
+
+                function buildSequence(items) {
+                    var seq = document.createElement('div');
+                    seq.className = 'seq';
+                    var i;
+
+                    for (i = 0; i < items.length; i++) {
+                        seq.appendChild(buildItem(items[i]));
+
+                        var gap = document.createElement('div');
+                        gap.className =
+                            i === items.length - 1 ? 'gap gap--loop' : 'gap';
+                        seq.appendChild(gap);
+                    }
+
+                    return seq;
+                }
+
+                function buildItem(item) {
+                    var el = document.createElement('div');
+                    el.className = 'ticker-item';
+
+                    if (item.image) {
+                        var img = document.createElement('img');
+                        img.src = item.image;
+                        img.alt = '';
+                        img.onerror = function () {
+                            // Image failed - drop it and rely on the headline
+                            if (img.parentNode) {
+                                img.parentNode.removeChild(img);
+                            }
+                        };
+                        el.appendChild(img);
+                    }
+
+                    var title = document.createElement('div');
+                    title.className = 'title';
+                    title.textContent = item.title;
+                    el.appendChild(title);
+
+                    return el;
+                }
+
+                // ---------------------------------------------------------------
+                // Animation
+                // ---------------------------------------------------------------
+
+                function startScrolling() {
+                    if (rafId !== null || !shouldPlay) {
+                        return;
+                    }
+                    lastFrameTime = null;
+                    rafId = requestAnimationFrame(frame);
+                }
+
+                function frame(now) {
+                    rafId = requestAnimationFrame(frame);
+
+                    if (lastFrameTime === null) {
+                        lastFrameTime = now;
+                        return;
+                    }
+
+                    var dt = (now - lastFrameTime) / 1000;
+                    lastFrameTime = now;
+
+                    // Clamp dt so background-tab pauses don't cause huge jumps
+                    if (dt > 0.5) {
+                        dt = 0.5;
+                    }
+
+                    if (seqWidth < 1) {
+                        return;
+                    }
+
+                    // Speed is expressed in strip-heights per second so the
+                    // ticker feels the same regardless of iframe size
+                    offset += scrollSpeed * window.innerHeight * dt;
+                    if (offset >= seqWidth) {
+                        offset -= seqWidth;
+                    }
+
+                    trackEl.style.transform =
+                        'translate3d(' + -offset + 'px, 0, 0)';
+                }
+
+                function cleanup() {
+                    if (rafId !== null) {
+                        cancelAnimationFrame(rafId);
+                        rafId = null;
+                    }
+                    if (refreshTimer) {
+                        clearTimeout(refreshTimer);
+                        refreshTimer = null;
+                    }
+                    trackEl.innerHTML = '';
+                    trackEl.style.transform = 'translate3d(0, 0, 0)';
+                    tickerEl.className = '';
+                    currentItems = [];
+                    currentSignature = null;
+                    seqWidth = 0;
+                    offset = 0;
+                    hasLoadedOnce = false;
+                }
+
+                // Rebuild on resize: vh-based sizing changes every element's
+                // width, so re-measure and preserve the scroll position as a
+                // fraction of the sequence
+                window.addEventListener('resize', function () {
+                    if (resizeTimer) {
+                        clearTimeout(resizeTimer);
+                    }
+                    resizeTimer = setTimeout(function () {
+                        if (currentItems.length === 0) {
+                            return;
+                        }
+                        var fraction = seqWidth > 0 ? offset / seqWidth : 0;
+                        rebuildTrack();
+                        offset = fraction * seqWidth;
+                        trackEl.style.transform =
+                            'translate3d(' + -offset + 'px, 0, 0)';
+                    }, 200);
+                });
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Resolve the feed URL from config or host-provided content.
+                 */
+                function resolveFeedUrl(config, content) {
+                    if (
+                        config.feed_url &&
+                        typeof config.feed_url === 'string'
+                    ) {
+                        return config.feed_url;
+                    }
+                    if (
+                        content &&
+                        content.url &&
+                        typeof content.url === 'string'
+                    ) {
+                        return content.url;
+                    }
+                    return null;
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+
+                function hideError() {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.style.display = 'none';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>

@@ -47,6 +47,7 @@ compliance checks (PASS/FAIL/WARN) in real time.
 plugin.js          # Core SDK - IIFE exposing global `SignagePlugin`
 youtube.html       # YouTube player plugin template
 instagram.html     # Instagram embed plugin template
+news-ticker.html   # Scrolling RSS news ticker plugin template
 validator.html     # Dev tool - protocol compliance validator (not a plugin)
 .prettierrc        # Prettier config: { singleQuote: true, tabWidth: 4 }
 CLAUDE.md          # Duplicate of AGENTS.md (kept in sync)

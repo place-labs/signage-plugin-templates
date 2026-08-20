@@ -24,6 +24,7 @@ Everything is vanilla JavaScript (ES5) and self-contained HTML files.
 plugin.js          Core SDK - exposes the global SignagePlugin object
 youtube.html       YouTube player plugin template
 instagram.html     Instagram embed plugin template
+news-ticker.html   Scrolling RSS news ticker plugin template
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -339,6 +340,39 @@ The URL can also be provided via `content.url`.
 
 **Error codes:** `MISSING_URL`, `INVALID_URL`, `MISSING_CONTAINER`,
 `EMBED_SCRIPT_LOAD_FAILED`, `EMBED_RENDER_TIMEOUT`, `EMBED_API_UNAVAILABLE`
+
+### News Ticker (`news-ticker.html`)
+
+A horizontally scrolling news ticker that fetches an RSS 2.0 or Atom feed and
+loops the top headlines with images (where available). Designed for narrow,
+full-width strip layouts: all sizing uses `vh` units so the ticker scales from
+the iframe height alone. The loop point is marked by a double-width gap
+between the last and first headline.
+
+**Capabilities:** Requires play signal, cannot finish (loops forever), dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `feed_url` | string | -- | RSS 2.0 or Atom feed URL (required) |
+| `max_items` | number | `10` | Number of top headlines to scroll |
+| `scroll_speed` | number | `1.5` | Scroll speed in strip-heights per second |
+| `show_images` | boolean | `true` | Show article images where available |
+
+The feed URL can also be provided via `content.url`.
+
+The feed is re-fetched using the response `Cache-Control: max-age` / `Expires`
+headers (both CORS-safelisted) as the refresh interval, falling back to the
+RSS `<ttl>` element, then a 5 minute default (clamped to 60s-24h). Failed
+refreshes keep the current headlines on screen and retry after 60 seconds.
+
+The feed is fetched through the host's relative proxy route
+(`/api/engine/v2/proxy?url=` + the URL-encoded feed URL), so feeds without
+CORS headers work in production.
+
+**Error codes:** `MISSING_FEED_URL`, `FEED_LOAD_FAILED`, `FEED_REFRESH_FAILED`
 
 ---
 
