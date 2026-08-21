@@ -1,0 +1,1988 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Rain Overlay Plugin</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            /* NOTE: this plugin is a fullscreen overlay iframe positioned above
+               other content, so the background must stay fully transparent.
+               The host should also set pointer-events: none on the iframe so
+               clicks pass through to the page underneath, and include
+               allow="display-capture" on the iframe so real-time tab capture
+               is permitted. */
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: transparent;
+            }
+            #rain-canvas {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="rain-canvas"></canvas>
+        <div id="error-overlay"></div>
+
+        <script src="../plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Rain-on-glass overlay.
+                //
+                // Renders animated raindrops that refract the page rendered
+                // underneath this iframe. Pixels without drops are output
+                // with alpha 0 so the page shows through.
+                //
+                // The refraction texture is a real-time mirror of the base
+                // page, captured one of two ways:
+                //
+                //   display - getDisplayMedia tab self-capture: a true
+                //             compositor feed of the page (video, CSS
+                //             animations, WebGL - everything) at full frame
+                //             rate. Needs the browser to grant tab capture
+                //             (kiosk policy or user approval).
+                //   dom     - same-origin parent DOM mirroring: a periodic
+                //             SVG foreignObject snapshot for static content,
+                //             plus per-frame copies of live <video>/<canvas>
+                //             elements. No permissions needed, but CSS
+                //             animations only update at the snapshot rate.
+                //
+                // Drop simulation and refraction shader adapted from
+                // "Rain & Water Effect Experiments" by Lucas Bebber (Codrops):
+                //   https://github.com/codrops/RainEffect
+                //   License: http://tympanus.net/codrops/licensing/
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        intensity: {
+                            type: 'number',
+                            title: 'Rain Intensity',
+                            description:
+                                'How heavy the rain is, from 0 (light drizzle) to 1 (downpour).',
+                            default: 0.5,
+                            minimum: 0,
+                            maximum: 1,
+                        },
+                        capture_mode: {
+                            type: 'string',
+                            title: 'Capture Mode',
+                            description:
+                                'How the base page is captured for refraction: "display" uses real-time tab capture via getDisplayMedia (requires a kiosk policy or user approval), "dom" mirrors the parent DOM with periodic snapshots, "auto" tries display capture and falls back to dom.',
+                            default: 'auto',
+                            enum: ['auto', 'display', 'dom'],
+                        },
+                        snapshot_interval: {
+                            type: 'number',
+                            title: 'Snapshot Interval (seconds)',
+                            description:
+                                'How often the base page DOM is re-captured in dom capture mode. Live video and canvas elements are mirrored every frame regardless. Ignored while display capture is active.',
+                            default: 10,
+                            minimum: 0.25,
+                            maximum: 300,
+                        },
+                        background_selector: {
+                            type: 'string',
+                            title: 'Background Selector',
+                            description:
+                                'Optional CSS selector for the element in the base page to mirror. Defaults to the whole page body.',
+                        },
+                        fallback_color: {
+                            type: 'string',
+                            title: 'Fallback Colour',
+                            description:
+                                'CSS colour refracted by the drops when the base page cannot be captured (e.g. cross-origin parent or standalone testing).',
+                            default: '#1b2531',
+                        },
+                    },
+                };
+
+                // ---------------------------------------------------------------
+                // Constants
+                // ---------------------------------------------------------------
+
+                var DROP_SIZE = 64;
+                var MAX_DPI = 2;
+                var RESIZE_DEBOUNCE_MS = 250;
+
+                // Drop shape textures from the original RainEffect assets,
+                // inlined so the plugin needs no extra image files.
+                var DROP_ALPHA_SRC =
+                    'data:image/png;base64,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';
+                var DROP_COLOR_SRC =
+                    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAATkklEQVR4AezRAQEAEAADME8OybUAtgpLa4WNBAgQgAABCBCAAAEIEMA7AQgQgAABCBCAAAEIEIAAAQgQgAABZExmy4JXjiCGwclfLzMziiqqqMIKyszwgzaVtm9c8Gk/RZrCPXIcJ7vn3OTt/mZFOfVXOtR/WDKhQx44NPUCnG1WFZDzeU7NnEEeOjbPsmowfzWcextTSA3g6Gmu74d93CcF5pN829OGl8cvDFS/ZDOiav098B75XWl81B4TIxuekv4ncenquryaDGXUKnZ9KZRYd777TkLZEYpR6EAlAt5WJTVAmukuy1NXYeZAFvAKIfV3frfETCLgQ5Znb7NUYKqDTdJDEE+6nPM8JLZOOM/fwYIJnrI1wn1SoFelZVg87yjt2w2xdQ6eTV66K6pvt4ecAsuAsRA0jRIeWP+o8frKK/fQ9M4nWnjxFHrh395wxnds8guNTUxITF5ZSnxeuy/qp4cW7yIcOrYrCHdqAGlEumZRE2lWRmIxmwI1zCXKBKqKNRuhVq6RoDut3snQu84bD31EDgA3vpet9y+ew1ZK5tJ1G9lw93mzOcibT2EAsGHAa7ZVjADwwt0sY2P4kwQLFtdU3nyhAArA9I77xrNxlgKl8ZPOk5gQtr3Kw/h5AK9376mqyO0J+7V5n7CzzovRGqkl0sTQxDS1gqSDUhXpbSNcFkNZMdr6FpEytILe8yLrL3cPRYI1jZRnoZWVh4CJzWsOYyeAf6J585N0XmPtttaLGWEDaJnOvvNgoERk71zyAwU/NcnMvPG18YTDe4b3yYZNFoKhViLyG2VmoTs9DgPx5KGPmZn5vtf6mJnxmJwcVB79+h852pOqKklnk117xna9vtXatUtmUCt1bjPiH1Yy9WMn3OjZ7xxNVb/ubWYIzmsqOm8hVfih+j3X8/drH0X2hsi+7TM3JHcYeToGUz+VU9pa+xDTcsOcNmzbZj5t+a10nJBMEoUz1OToQwmAjY3NAacPqna4WBdzpsrA1FkJY9VTjuEnZ3rkWE7SpyIpYsJynxUiwIr/tDIS0Kq6J5Xb5oBzibAMDg/rsPywGE3WDz0lL8Dc7UtHwgIaiv3rbiTvIhUzsK3UEHmKP3UX0jHSnAZUJL8/t5WMjqh/5DpdIirQkrxvDvjuonUE/dW8Jn4V67sEyCAwCvoHxogkPdfBXLvsIzyFGMevpeYlUw/ZVG6Tk8RxGo2tkXza9s749kqde0dGq7qitwhT3P2pG6h6FLhzsXYJwfbUkU6IIorGAYnaq1IvHZluv70ud6FPZBFfi0ihTnymSn37jW4aJ3dGEicQiz15jjaU9CLJCxtpwzZoTWzo4GhdpUQAxkCkp3KDADwCRucUdkOshmG7Fr++6fRnfPdUwzESQxhlBLDkWZAXvnF6Bk6JTAB4Sq3MaZ5ONwtcKMl2nlxkwhARAW60QF0psQz96s6+/zxQJ1lZyVqiN2QtkoVfiMUiIzWrzLC4D9tJSXuD6gL34bP+F8rc1YVtZdzd0VSqMJbkcsrilQ7oR0RAB3xxXzi7BGU9QG+TzmAHIiy2inWgF8Vw0bKguQFsXWBKZxjNqwwR+8H0AfAauGXcnq6Mzx6mx9QhGnDXvqyczd999jKMjIMoK3VlFYEPRj4io1lchgyaeFU7uaei+d7odAkyTSCjMAdAo8hkCaNqQ/bBF4MDwHRNt/o73+waDPjJE7kF12brKuPT4gR4EB9Levo6AURGBTBMiTRqUwpaX2sCuoEgDmtwMcUyOn38Ix4gjzODg+ZHD2Zi6EwDrHwikeA+rIYkGfJfEjlYvYDpElC0zs3DTG/TlFHKNFhKcaz3QdZOwMiUbGMwOetu9lRm7R/87Arwad3Mchb4V7T4W1jHxjT3QhkOCJLAt/KDOEU48nqJ+GmYbcW5X7dU+3u/WsTfoxWOWBWgcaZXVuO4U+9fZN6ZFcTcIBNzJbIIAUDRnJgeIDh22ON5HIyFxSzeimJhcn9WKMgiXn2iaqIm+ju/F//+7D5Z5IP1q+ya++Elh/DyEPC8ExOFhjT1/ctUYSSYWvTXBfhy3cWzKa/+1p9I4tZV1sesBNZdGGNNiBSwAqNwEA92B0QQpDBEE0gtQWQqMngWXQsuY0VThi92THuA5szhfItmhvNYwpghg7/+Fx2y9h4r2bL9ggAKDznxl7F7yKZe6f/lnC3GWnFwnV28Wluq2WThFsOKj/srbKIm/fHaZu1lZddIABXgqkQmlE3BTa0jSSRYlKcJqJ6ZfprC2EoPBn3J1FTFQkta1CKbGWiD88cyC3qLjF19xpv+0vxf/yka5dlNM0ZUTLcpB7SXY3S3NBArpEvEdElxFGpYd1tdClFaVeP+fFECifLVXxMguDcawbK0KUWN4l2Ur1kfDPRyDwZBPMGwuB3XR6mMFvw5yX36hsHACz8rW6bXRZo+u/6rHSGornZsykxQc99icVHX496ZKmXHmvtYd0AxWEwnZFfaway0VsDTtfX9/3RKgad2VyvfjcP6wGLuWGdU0RbE1PjvUu6Cx5UkCQKw+5iZmZmZmZl5eW/hGP7+2HXQ0ij8Tby8lk4aee12T7/ZyqrIrIjI4jZzg7XWiq/IKJtzItZu7nWzPOtKdW6GQ3zNjcLpyha2/XN2miglzhtgaOGJvxR5+QpkYEYLO7wSjCmRLEqDYEQmBmlW4hyrBHBHe/tbflZZFsXknE1KkQNyEVzVpsGbAvpcBMqZsI5jpOXbBLMHaZlIFmVPXClJK+ucZMCSpFI/sPDf+Jij/ZfCWaO9JROnoaNUxEdqoQmLB7yebxvvyck+p4TFR3OAdIU74XljLPO2/SnqH4xWe7gUQrFGqeFRG6iHALuByAH3wvSw+x0rVyAr71zuFU6XTFps4DMVFcXUomhBjsaQptlrD8AfQgFmEeTQG9vIOcwL3oTueGAd+DFAw2qngH5Hf6EJZiKuMN+HrDCWglpy5iro8Rx6JLBFVRsab8CfZoKCRREAkx77ZCZsRQ/ywbgP4JXn81sSqLlcitaUMr3CAIKVnrbYDD9anVgpsxjPEAWXlejSG1JG350ORBiMQrJjzO5ItuwMTvAZbnRjRuevmANCgLzO0muVGumoERiZ/iHEmkYbLZHHkktfSVpIjmkvvUo5kyfyfdw2wNFtqJYJYymf+WYqIlaTDVZ/46giyDwIFx3Wu9gBdGOhwIccRibI8NwpOTawKHNy4kbemUMWY0q+6XlF1gE6JG7I9BtXpH4xYaaUj0mLHHAfHTY2gfAU4g8N0n/6jvfSORm1gZzFlEZT0RnIcBOPqs/Pj0QOqMlVPjvPBqUezP9tlqFY+6P2z6VABYYaI6tFEobvTVUEQI/JGBepbRKacpsGnRBznwCwH6RKVqIZ9QDQImk0ROPMAb8aeAjTyIB0/NED9zDUnQeJ6PbtfKcp5AD9R1YbMgGmUuNhCeQK+MVt954hKm44YEcFLnWVC2OKPnNdDqlBdp7A1SDpRjFaKLwNSoOlmcs3s5H/g1GIh+qndZN6dPW+zO2n0eGPrXfYBq/OBVGD5uqOHxTa2HwSmOV+yrQsKS1xLVj55NhnJf8TWZpZT6aNttkY8ciaiTwxnrHh3X7c2VBhRykmVReVd36OlqF+nJmGmlfHtExF6z3LlYdIiVIvNAk+B1qU99cfYkhpKdv2OY1gpNyCNlQ+6F9KjOTGklqFoASfvrdwueTcd6tVzC8lBtfkLgOCr8e2mcgB3+vWaDmNeGUnHKKdjRKzj9NqR6rgYCo+pgkPt7kjcU+gMUI2bOzBSgqnuyK+bQ1K1sYPEfhDVCIjKRtZ5HQIctxnwLGk8QmilgFwI+JvFZsTFyd32iIACTsk4W8F/jDu7IG1n2BKPdvjQNVfVMbVSSF8ImZReLou4lPw9J02CqWwmX5L659ii1vXxlDmfhZFKwxw29ejBWNbaYjzQScHvRVCwV7ZAUFgwu9PhIQCYwMBR/mU989Jnn8iFm4kCf5sEt4649BByLL42e7G4Kv/ny/IlThLqegz4MbolnAEnekQ0RGn4+WWIGkbWiS/QKTSkh+dB2EktMTfA/Al5DCgH6s7bsjS1QZ04ozTdiBcMN8DHwhVIo8LpbNGJg+ftk4n+AwMdKA/4QkUysbFvadIWTfd0V/M8ihUSVmgBe67U0/TdjqZhFfLDBVzXRHx3qHPwKBlunocR7XimBa0k5iilYK1UhuGBHPm974R+1xCv+5om56UIek9BzThcstWoMziiB/+zgN2RCUa79FiZA7QdyWL3lqa/QgnkT0zrc19+wwJIMJ1yQI02YiAnVwWWTLXGi6Ln3KdmmQoUg/tfgUfq9X9byaRxJ1IeIeaKfPbzAT036U9/ZNKkuTe0RW6OhxFvqUSjR7ri1i8/tvfuwoL7cDp6QTEDIbbiDkn28GqMyUhq+oBjJgjSS/M9olWAq3T6XSOUyJUhu1gVhcjDHc739L32oR1weqMOdc4RSxLznCznVQPt5GxNBjEPapSOejp8o8w1Ca9j+UXUKaDrHwu7/kR9yurroaVo9kghdUw2BRzT5dJSIktSoZIA1IUS43PiZgJkqUA98DHjywDsA1N8b3wDzJrHVQl5zcOn0AE+08tRI1kPqCvr9NTa2WwE4VMBg4CuH/5X0cyfmif9SeFgnVd+SQzKu6Hb9tWGVGob/q1KGuBZnbj+4wAgDDcT/woQyNOY39SGQG6hki8TFy9oR+Io5v3yjRuggUaAhDyC2oMnqpVmk8dkbgIR+0KcFLvZ9voEboCmX3EiUeKboOdm4EmJEz8y7EAvM9NgB6KyLelKax4dVMYKAEgMaKSW+bPWli2uq+79MNNGACCn8CWovFENsJG4l0Ce8ptq/6iMb3SlwxvpNv36A3NAEDyFekZfdgNJN1uMu9lv0rFctsxKb9GO0bzEalr+mQ5ksu/h/XsqTmyoVGJrih7yMArU/TqAVg7zr9rtfPe6QaI4sldHwGg/z3TKRJrIi8SmLxx7HLZFYP+8a2lasapTvy7e8OBPomDVDhEkKOEDMBda+I7DMD1KZsne45dAdKBnYxT5mYaVn6Y2tQtmJZFiI0qYWqksDGE8MQVqEMYIQohBRkqn7A3nE7bWzMneOioVIRmLEa//cgYr6L9dkTiI1cYdO9suwEUiMbKmbfZz3PuhaefBSvDIXrudoMLesvcJemz9F5fIWZcJBWrLM6SJLCOJDnQO64MN3FQnt0dHD7qDInVdj22sZj4GXQtENubNOeaA06DKpBAyTRZ1jzuipvqqytCE9U92R7NW+QJrFr4KpQh+QtDOt3jhwKYBXfvp7Pv6Grb+4Y1nZW/11uLxwE+zH12ZOMRViq6xyDIjdWZVQLu8cobpKGJifP/V6TNBnlUAcIQXNDrAB/EAJePhb+RMC91hO00de9jwemG7yELG8e3+4iotbpxJhGJvknOooqBFp97l6Sj/Rrxp3h6LWk9elLicLLTYDa2Krd/WIeEA50B8Nu6pxvwh24AJSNHP+tAt2waUmgUSNh/VawI/dO6ImwZkwuySSYLR1aAKGHNnix/qfFFj94sTxuaspdPdqYrCIeSURvlcKbk6Gm9jen+iv0/xKD0dzvQa6lT09g2OLHsFUX5QwdWT88wyIBKS2gqnfUZPQOlK/gmjn4/duq3DD8tSi8nBxCle6P/0KPT4Ahm7djpHJIKBwyK3Omsr6AnMG43goyiRQSAPBzVo3m0B+Bljn7z0Rlek0zfu4dVq+dkLJjUnZRJwo5stlxprhhDa70r8xOFUGBj0LfXMpmQsHRQ4z1Mz/r2EmpQc6+biy6K9RJobr+ymrQqHWobX4edwYHSVklOq2s5Ng1x2CqoxiO+zRXw4v2LPJc+vXMRA6mljMooohaECdeJSiF5D3ZzR2HXR6JTR/9Wj5LkJd00VeJnjSHWGUUAGEYO7XtBfGCNmIqHVthsaC7TB6CsE9kBQsB6Sg6WdMLwyq9UAbLQFeOeJor9vME3dCYlvMdcf74tShGo3L/lxZRMV+gSgYmrV3JpAkTbIlU6giZV32u0UmszAGUDjJ1b9cKDgHGDc7hV/AqJl83w83oJFJhlRTS64/uUmT8eP2DPXoHJwsWpBHXu53WF++NsRLt4/ODW52Q0SNPUox7GVTrWilWGosKah+2CaC46qQ93sd7F1BMyVQDKBFoeekBUR+gBMw+6U9DpC3r2SEdjcje289kJ5uT5zUElYK6LkCRhNQ6e3xS/suLVtT5wYuMKQHl8Vn72XEWf5eiPdu0Mxny4v/DidZ1rTvkamLkGFZF8woyiFuJ4I/CReOzAdQCema4IU7aZYLEaEOUDczg5rthPKhvsxJTpFHzYfPk0DYfGss8MD1ZIu0pykSz6demwQ4+YJ+c+PYYeZRhRH68L02FDcYSoUvvWlODRQB1k7BTDZ5gi5arg01ozJOPSppjCJPASlTfXGbrYThW6c3uaCWBELo9GmE/zBUaPQT9xYiOW1itLzzlP8HEsz7w+g4/XdUfPh/Y9dV274S5+zLs7/XD81MS5BkUT5ttjadlfnMddAryKM9dcrExc7gBwkADd+8T3iMRtW9FIVldAOTm3BaBiYqWDpAdKGbrN/cBDVzf3GwDt0NZFebOdAfHP1XXg+/66oCKgJowED10xlCf/sv7TA1DtEd10TgC6AV2T+ngKMgcfIMT718Y9STG56bFZsZzy0Eb4X+dkrCiQm6P1AAAAAElFTkSuQmCC';
+
+                var VERT_SHADER = [
+                    'precision mediump float;',
+                    'attribute vec2 a_position;',
+                    'void main() {',
+                    '    gl_Position = vec4(a_position, 0.0, 1.0);',
+                    '}',
+                ].join('\n');
+
+                // Simplified from the original water.frag: a single background
+                // texture (the mirrored page), no parallax/shine/shadow, and a
+                // premultiplied-alpha output that is transparent where there
+                // are no drops.
+                var FRAG_SHADER = [
+                    'precision mediump float;',
+                    'uniform sampler2D u_waterMap;',
+                    'uniform sampler2D u_textureBg;',
+                    'uniform vec2 u_resolution;',
+                    'uniform float u_minRefraction;',
+                    'uniform float u_refractionDelta;',
+                    'uniform float u_brightness;',
+                    'uniform float u_alphaMultiply;',
+                    'uniform float u_alphaSubtract;',
+                    '',
+                    'vec2 pixel() {',
+                    '    return vec2(1.0, 1.0) / u_resolution;',
+                    '}',
+                    '',
+                    'vec2 texCoord() {',
+                    '    return vec2(gl_FragCoord.x, u_resolution.y - gl_FragCoord.y) / u_resolution;',
+                    '}',
+                    '',
+                    'void main() {',
+                    '    vec4 cur = texture2D(u_waterMap, texCoord());',
+                    '    float d = cur.b;',
+                    '    float x = cur.g;',
+                    '    float y = cur.r;',
+                    '    float a = clamp(cur.a * u_alphaMultiply - u_alphaSubtract, 0.0, 1.0);',
+                    '    vec2 refraction = (vec2(x, y) - 0.5) * 2.0;',
+                    '    vec2 refractionPos = texCoord() + (pixel() * refraction * (u_minRefraction + (d * u_refractionDelta)));',
+                    '    vec4 tex = texture2D(u_textureBg, refractionPos);',
+                    '    gl_FragColor = vec4(tex.rgb * u_brightness * a, a);',
+                    '}',
+                ].join('\n');
+
+                // ---------------------------------------------------------------
+                // Small utilities
+                // ---------------------------------------------------------------
+
+                /**
+                 * Shallow-merge own properties of source objects into target.
+                 *
+                 * @param {object} target
+                 * @returns {object} target
+                 */
+                function extend(target) {
+                    for (var i = 1; i < arguments.length; i++) {
+                        var source = arguments[i];
+                        if (!source) continue;
+                        for (var key in source) {
+                            if (
+                                Object.prototype.hasOwnProperty.call(
+                                    source,
+                                    key,
+                                )
+                            ) {
+                                target[key] = source[key];
+                            }
+                        }
+                    }
+                    return target;
+                }
+
+                function createCanvas(width, height) {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    return canvas;
+                }
+
+                function times(n, fn) {
+                    for (var i = 0; i < n; i++) {
+                        fn(i);
+                    }
+                }
+
+                /**
+                 * Random number between from and to, optionally shaped by an
+                 * interpolation function.
+                 *
+                 * @param {number} [from]
+                 * @param {number} [to]
+                 * @param {function} [interpolation]
+                 * @returns {number}
+                 */
+                function random(from, to, interpolation) {
+                    if (from === undefined || from === null) {
+                        from = 0;
+                        to = 1;
+                    } else if (to === undefined || to === null) {
+                        to = from;
+                        from = 0;
+                    }
+                    var delta = to - from;
+                    var n = Math.random();
+                    if (interpolation) n = interpolation(n);
+                    return from + n * delta;
+                }
+
+                function chance(c) {
+                    return random() <= c;
+                }
+
+                // ---------------------------------------------------------------
+                // WebGL helpers (ported from RainEffect src/webgl.js)
+                // ---------------------------------------------------------------
+
+                function glGetContext(canvas, options) {
+                    var names = ['webgl', 'experimental-webgl'];
+                    var context = null;
+                    for (var i = 0; i < names.length && !context; i++) {
+                        try {
+                            context = canvas.getContext(names[i], options);
+                        } catch (e) {
+                            /* Ignore */
+                        }
+                    }
+                    return context;
+                }
+
+                function glCreateShader(gl, script, type) {
+                    var shader = gl.createShader(type);
+                    gl.shaderSource(shader, script);
+                    gl.compileShader(shader);
+                    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                        var error = gl.getShaderInfoLog(shader);
+                        gl.deleteShader(shader);
+                        throw new Error('Shader compile failed: ' + error);
+                    }
+                    return shader;
+                }
+
+                function glCreateProgram(gl, vertexScript, fragScript) {
+                    var vertexShader = glCreateShader(
+                        gl,
+                        vertexScript,
+                        gl.VERTEX_SHADER,
+                    );
+                    var fragShader = glCreateShader(
+                        gl,
+                        fragScript,
+                        gl.FRAGMENT_SHADER,
+                    );
+
+                    var program = gl.createProgram();
+                    gl.attachShader(program, vertexShader);
+                    gl.attachShader(program, fragShader);
+                    gl.linkProgram(program);
+
+                    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                        var error = gl.getProgramInfoLog(program);
+                        gl.deleteProgram(program);
+                        throw new Error('Program link failed: ' + error);
+                    }
+
+                    var positionLocation = gl.getAttribLocation(
+                        program,
+                        'a_position',
+                    );
+                    var buffer = gl.createBuffer();
+                    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                    gl.enableVertexAttribArray(positionLocation);
+                    gl.vertexAttribPointer(
+                        positionLocation,
+                        2,
+                        gl.FLOAT,
+                        false,
+                        0,
+                        0,
+                    );
+
+                    return program;
+                }
+
+                function glActiveTexture(gl, i) {
+                    gl.activeTexture(gl['TEXTURE' + i]);
+                }
+
+                function glUpdateTexture(gl, source) {
+                    gl.texImage2D(
+                        gl.TEXTURE_2D,
+                        0,
+                        gl.RGBA,
+                        gl.RGBA,
+                        gl.UNSIGNED_BYTE,
+                        source,
+                    );
+                }
+
+                function glCreateTexture(gl, source, i) {
+                    var texture = gl.createTexture();
+                    glActiveTexture(gl, i);
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+                    gl.texParameteri(
+                        gl.TEXTURE_2D,
+                        gl.TEXTURE_WRAP_S,
+                        gl.CLAMP_TO_EDGE,
+                    );
+                    gl.texParameteri(
+                        gl.TEXTURE_2D,
+                        gl.TEXTURE_WRAP_T,
+                        gl.CLAMP_TO_EDGE,
+                    );
+                    gl.texParameteri(
+                        gl.TEXTURE_2D,
+                        gl.TEXTURE_MIN_FILTER,
+                        gl.LINEAR,
+                    );
+                    gl.texParameteri(
+                        gl.TEXTURE_2D,
+                        gl.TEXTURE_MAG_FILTER,
+                        gl.LINEAR,
+                    );
+
+                    if (source != null) {
+                        glUpdateTexture(gl, source);
+                    }
+                    return texture;
+                }
+
+                /**
+                 * Thin object wrapper around a WebGL context and program.
+                 * Ported from RainEffect src/gl-obj.js.
+                 *
+                 * @param {HTMLCanvasElement} canvas
+                 * @param {object} options - WebGL context attributes
+                 * @param {string} vert - Vertex shader source
+                 * @param {string} frag - Fragment shader source
+                 */
+                function GL(canvas, options, vert, frag) {
+                    this.canvas = canvas;
+                    this.width = canvas.width;
+                    this.height = canvas.height;
+                    this.gl = glGetContext(canvas, options);
+                    if (!this.gl) {
+                        throw new Error('WebGL context unavailable');
+                    }
+                    this.program = glCreateProgram(this.gl, vert, frag);
+                    this.gl.useProgram(this.program);
+                }
+
+                GL.prototype.createUniform = function (type, name) {
+                    var gl = this.gl;
+                    var location = gl.getUniformLocation(
+                        this.program,
+                        'u_' + name,
+                    );
+                    var args = [location].concat(
+                        Array.prototype.slice.call(arguments, 2),
+                    );
+                    gl['uniform' + type].apply(gl, args);
+                };
+
+                GL.prototype.createTexture = function (source, i) {
+                    return glCreateTexture(this.gl, source, i);
+                };
+
+                GL.prototype.activeTexture = function (i) {
+                    glActiveTexture(this.gl, i);
+                };
+
+                GL.prototype.updateTexture = function (source) {
+                    glUpdateTexture(this.gl, source);
+                };
+
+                GL.prototype.draw = function () {
+                    var gl = this.gl;
+                    gl.viewport(0, 0, this.width, this.height);
+                    gl.bufferData(
+                        gl.ARRAY_BUFFER,
+                        new Float32Array([
+                            -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
+                        ]),
+                        gl.STATIC_DRAW,
+                    );
+                    gl.drawArrays(gl.TRIANGLES, 0, 6);
+                };
+
+                // ---------------------------------------------------------------
+                // Raindrops simulation (ported from RainEffect src/raindrops.js)
+                //
+                // Simulates drops on a 2D canvas whose red/green channels encode
+                // the refraction vector and blue encodes drop thickness. The
+                // canvas is uploaded to the shader as the "water map".
+                // ---------------------------------------------------------------
+
+                var DROP_DEFAULTS = {
+                    x: 0,
+                    y: 0,
+                    r: 0,
+                    spreadX: 0,
+                    spreadY: 0,
+                    momentum: 0,
+                    momentumX: 0,
+                    lastSpawn: 0,
+                    nextSpawn: 0,
+                    parent: null,
+                    isNew: true,
+                    killed: false,
+                    shrink: 0,
+                };
+
+                var RAINDROPS_DEFAULTS = {
+                    minR: 10,
+                    maxR: 40,
+                    maxDrops: 900,
+                    rainChance: 0.3,
+                    rainLimit: 3,
+                    dropletsRate: 50,
+                    dropletsSize: [2, 4],
+                    dropletsCleaningRadiusMultiplier: 0.43,
+                    raining: true,
+                    globalTimeScale: 1,
+                    trailRate: 1,
+                    autoShrink: true,
+                    spawnArea: [-0.1, 0.95],
+                    trailScaleRange: [0.2, 0.5],
+                    collisionRadius: 0.65,
+                    collisionRadiusIncrease: 0.01,
+                    dropFallMultiplier: 1,
+                    collisionBoostMultiplier: 0.05,
+                    collisionBoost: 1,
+                };
+
+                /**
+                 * @param {number} width - Simulation canvas width (device px)
+                 * @param {number} height - Simulation canvas height (device px)
+                 * @param {number} scale - Device pixel ratio
+                 * @param {HTMLImageElement} dropAlpha - Drop alpha mask texture
+                 * @param {HTMLImageElement} dropColor - Drop colour/normal texture
+                 * @param {object} [options] - Overrides for RAINDROPS_DEFAULTS
+                 */
+                function Raindrops(
+                    width,
+                    height,
+                    scale,
+                    dropAlpha,
+                    dropColor,
+                    options,
+                ) {
+                    this.width = width;
+                    this.height = height;
+                    this.scale = scale;
+                    this.dropAlpha = dropAlpha;
+                    this.dropColor = dropColor;
+                    this.options = extend({}, RAINDROPS_DEFAULTS, options);
+                    this.dropletsPixelDensity = 1;
+                    this.dropletsCounter = 0;
+                    this.textureCleaningIterations = 0;
+                    this.lastRender = null;
+
+                    this.canvas = createCanvas(width, height);
+                    this.ctx = this.canvas.getContext('2d');
+                    this.droplets = createCanvas(width, height);
+                    this.dropletsCtx = this.droplets.getContext('2d');
+                    this.drops = [];
+                    this.dropsGfx = [];
+
+                    this.renderDropsGfx();
+                }
+
+                Raindrops.prototype.deltaR = function () {
+                    return this.options.maxR - this.options.minR;
+                };
+
+                Raindrops.prototype.area = function () {
+                    return (this.width * this.height) / this.scale;
+                };
+
+                Raindrops.prototype.areaMultiplier = function () {
+                    return Math.sqrt(this.area() / (1024 * 768));
+                };
+
+                Raindrops.prototype.drawDroplet = function (x, y, r) {
+                    var density = this.dropletsPixelDensity;
+                    this.drawDrop(
+                        this.dropletsCtx,
+                        extend({}, DROP_DEFAULTS, {
+                            x: x * density,
+                            y: y * density,
+                            r: r * density,
+                        }),
+                    );
+                };
+
+                // Pre-renders 255 tinted variants of the drop sprite; the blue
+                // channel index encodes drop thickness for the shader.
+                Raindrops.prototype.renderDropsGfx = function () {
+                    var dropBuffer = createCanvas(DROP_SIZE, DROP_SIZE);
+                    var dropBufferCtx = dropBuffer.getContext('2d');
+
+                    this.dropsGfx = [];
+                    for (var i = 0; i < 255; i++) {
+                        var drop = createCanvas(DROP_SIZE, DROP_SIZE);
+                        var dropCtx = drop.getContext('2d');
+
+                        dropBufferCtx.clearRect(0, 0, DROP_SIZE, DROP_SIZE);
+
+                        // Colour
+                        dropBufferCtx.globalCompositeOperation = 'source-over';
+                        dropBufferCtx.drawImage(
+                            this.dropColor,
+                            0,
+                            0,
+                            DROP_SIZE,
+                            DROP_SIZE,
+                        );
+
+                        // Blue overlay, for depth
+                        dropBufferCtx.globalCompositeOperation = 'screen';
+                        dropBufferCtx.fillStyle = 'rgba(0,0,' + i + ',1)';
+                        dropBufferCtx.fillRect(0, 0, DROP_SIZE, DROP_SIZE);
+
+                        // Alpha
+                        dropCtx.globalCompositeOperation = 'source-over';
+                        dropCtx.drawImage(
+                            this.dropAlpha,
+                            0,
+                            0,
+                            DROP_SIZE,
+                            DROP_SIZE,
+                        );
+                        dropCtx.globalCompositeOperation = 'source-in';
+                        dropCtx.drawImage(
+                            dropBuffer,
+                            0,
+                            0,
+                            DROP_SIZE,
+                            DROP_SIZE,
+                        );
+
+                        this.dropsGfx.push(drop);
+                    }
+
+                    // Circle used as a brush to remove droplets under moving drops
+                    this.clearDropletsGfx = createCanvas(128, 128);
+                    var clearCtx = this.clearDropletsGfx.getContext('2d');
+                    clearCtx.fillStyle = '#000';
+                    clearCtx.beginPath();
+                    clearCtx.arc(64, 64, 64, 0, Math.PI * 2);
+                    clearCtx.fill();
+                };
+
+                Raindrops.prototype.drawDrop = function (ctx, drop) {
+                    if (this.dropsGfx.length === 0) return;
+
+                    var x = drop.x;
+                    var y = drop.y;
+                    var r = drop.r;
+                    var spreadX = drop.spreadX;
+                    var spreadY = drop.spreadY;
+                    var scaleX = 1;
+                    var scaleY = 1.5;
+
+                    var d = Math.max(
+                        0,
+                        Math.min(
+                            1,
+                            ((r - this.options.minR) / this.deltaR()) * 0.9,
+                        ),
+                    );
+                    d *= 1 / ((spreadX + spreadY) * 0.5 + 1);
+
+                    ctx.globalAlpha = 1;
+                    ctx.globalCompositeOperation = 'source-over';
+
+                    d = Math.floor(d * (this.dropsGfx.length - 1));
+                    ctx.drawImage(
+                        this.dropsGfx[d],
+                        (x - r * scaleX * (spreadX + 1)) * this.scale,
+                        (y - r * scaleY * (spreadY + 1)) * this.scale,
+                        r * 2 * scaleX * (spreadX + 1) * this.scale,
+                        r * 2 * scaleY * (spreadY + 1) * this.scale,
+                    );
+                };
+
+                Raindrops.prototype.clearDroplets = function (x, y, r) {
+                    if (r === undefined) r = 30;
+                    var ctx = this.dropletsCtx;
+                    var density = this.dropletsPixelDensity;
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.drawImage(
+                        this.clearDropletsGfx,
+                        (x - r) * density * this.scale,
+                        (y - r) * density * this.scale,
+                        r * 2 * density * this.scale,
+                        r * 2 * density * this.scale * 1.5,
+                    );
+                };
+
+                Raindrops.prototype.createDrop = function (options) {
+                    if (
+                        this.drops.length >=
+                        this.options.maxDrops * this.areaMultiplier()
+                    ) {
+                        return null;
+                    }
+                    return extend({}, DROP_DEFAULTS, options);
+                };
+
+                Raindrops.prototype.updateRain = function (timeScale) {
+                    var rainDrops = [];
+                    if (!this.options.raining) return rainDrops;
+
+                    var limit =
+                        this.options.rainLimit *
+                        timeScale *
+                        this.areaMultiplier();
+                    var count = 0;
+                    while (
+                        chance(
+                            this.options.rainChance *
+                                timeScale *
+                                this.areaMultiplier(),
+                        ) &&
+                        count < limit
+                    ) {
+                        count++;
+                        var r = random(
+                            this.options.minR,
+                            this.options.maxR,
+                            function (n) {
+                                return Math.pow(n, 3);
+                            },
+                        );
+                        var rainDrop = this.createDrop({
+                            x: random(this.width / this.scale),
+                            y: random(
+                                (this.height / this.scale) *
+                                    this.options.spawnArea[0],
+                                (this.height / this.scale) *
+                                    this.options.spawnArea[1],
+                            ),
+                            r: r,
+                            momentum:
+                                1 + (r - this.options.minR) * 0.1 + random(2),
+                            spreadX: 1.5,
+                            spreadY: 1.5,
+                        });
+                        if (rainDrop != null) {
+                            rainDrops.push(rainDrop);
+                        }
+                    }
+                    return rainDrops;
+                };
+
+                Raindrops.prototype.updateDroplets = function (timeScale) {
+                    if (this.textureCleaningIterations > 0) {
+                        this.textureCleaningIterations -= 1 * timeScale;
+                        this.dropletsCtx.globalCompositeOperation =
+                            'destination-out';
+                        this.dropletsCtx.fillStyle =
+                            'rgba(0,0,0,' + 0.05 * timeScale + ')';
+                        this.dropletsCtx.fillRect(
+                            0,
+                            0,
+                            this.width * this.dropletsPixelDensity,
+                            this.height * this.dropletsPixelDensity,
+                        );
+                    }
+                    if (this.options.raining) {
+                        this.dropletsCounter +=
+                            this.options.dropletsRate *
+                            timeScale *
+                            this.areaMultiplier();
+                        var self = this;
+                        times(this.dropletsCounter, function () {
+                            self.dropletsCounter--;
+                            self.drawDroplet(
+                                random(self.width / self.scale),
+                                random(self.height / self.scale),
+                                random(
+                                    self.options.dropletsSize[0],
+                                    self.options.dropletsSize[1],
+                                    function (n) {
+                                        return n * n;
+                                    },
+                                ),
+                            );
+                        });
+                    }
+                    this.ctx.drawImage(
+                        this.droplets,
+                        0,
+                        0,
+                        this.width,
+                        this.height,
+                    );
+                };
+
+                Raindrops.prototype.updateDrops = function (timeScale) {
+                    var self = this;
+                    var newDrops = [];
+
+                    this.updateDroplets(timeScale);
+                    newDrops = newDrops.concat(this.updateRain(timeScale));
+
+                    this.drops.sort(function (a, b) {
+                        var va = a.y * (self.width / self.scale) + a.x;
+                        var vb = b.y * (self.width / self.scale) + b.x;
+                        return va > vb ? 1 : va === vb ? 0 : -1;
+                    });
+
+                    this.drops.forEach(function (drop, i) {
+                        if (drop.killed) return;
+
+                        // Gravity (chance of drops "creeping down")
+                        if (
+                            chance(
+                                (drop.r -
+                                    self.options.minR *
+                                        self.options.dropFallMultiplier) *
+                                    (0.1 / self.deltaR()) *
+                                    timeScale,
+                            )
+                        ) {
+                            drop.momentum += random(
+                                (drop.r / self.options.maxR) * 4,
+                            );
+                        }
+
+                        // Clean up small drops
+                        if (
+                            self.options.autoShrink &&
+                            drop.r <= self.options.minR &&
+                            chance(0.05 * timeScale)
+                        ) {
+                            drop.shrink += 0.01;
+                        }
+
+                        // Shrinkage
+                        drop.r -= drop.shrink * timeScale;
+                        if (drop.r <= 0) drop.killed = true;
+
+                        // Trails
+                        if (self.options.raining) {
+                            drop.lastSpawn +=
+                                drop.momentum *
+                                timeScale *
+                                self.options.trailRate;
+                            if (drop.lastSpawn > drop.nextSpawn) {
+                                var trailDrop = self.createDrop({
+                                    x: drop.x + random(-drop.r, drop.r) * 0.1,
+                                    y: drop.y - drop.r * 0.01,
+                                    r:
+                                        drop.r *
+                                        random(
+                                            self.options.trailScaleRange[0],
+                                            self.options.trailScaleRange[1],
+                                        ),
+                                    spreadY: drop.momentum * 0.1,
+                                    parent: drop,
+                                });
+
+                                if (trailDrop != null) {
+                                    newDrops.push(trailDrop);
+                                    drop.r *= Math.pow(0.97, timeScale);
+                                    drop.lastSpawn = 0;
+                                    drop.nextSpawn =
+                                        random(
+                                            self.options.minR,
+                                            self.options.maxR,
+                                        ) -
+                                        drop.momentum *
+                                            2 *
+                                            self.options.trailRate +
+                                        (self.options.maxR - drop.r);
+                                }
+                            }
+                        }
+
+                        // Normalise spread
+                        drop.spreadX *= Math.pow(0.4, timeScale);
+                        drop.spreadY *= Math.pow(0.7, timeScale);
+
+                        // Position
+                        var moved = drop.momentum > 0;
+                        if (moved && !drop.killed) {
+                            drop.y +=
+                                drop.momentum * self.options.globalTimeScale;
+                            drop.x +=
+                                drop.momentumX * self.options.globalTimeScale;
+                            if (drop.y > self.height / self.scale + drop.r) {
+                                drop.killed = true;
+                            }
+                        }
+
+                        // Collisions
+                        var checkCollision =
+                            (moved || drop.isNew) && !drop.killed;
+                        drop.isNew = false;
+
+                        if (checkCollision) {
+                            self.drops
+                                .slice(i + 1, i + 70)
+                                .forEach(function (drop2) {
+                                    if (
+                                        drop !== drop2 &&
+                                        drop.r > drop2.r &&
+                                        drop.parent !== drop2 &&
+                                        drop2.parent !== drop &&
+                                        !drop2.killed
+                                    ) {
+                                        var dx = drop2.x - drop.x;
+                                        var dy = drop2.y - drop.y;
+                                        var d = Math.sqrt(dx * dx + dy * dy);
+                                        if (
+                                            d <
+                                            (drop.r + drop2.r) *
+                                                (self.options.collisionRadius +
+                                                    drop.momentum *
+                                                        self.options
+                                                            .collisionRadiusIncrease *
+                                                        timeScale)
+                                        ) {
+                                            var pi = Math.PI;
+                                            var r1 = drop.r;
+                                            var r2 = drop2.r;
+                                            var a1 = pi * (r1 * r1);
+                                            var a2 = pi * (r2 * r2);
+                                            var targetR = Math.sqrt(
+                                                (a1 + a2 * 0.8) / pi,
+                                            );
+                                            if (targetR > self.options.maxR) {
+                                                targetR = self.options.maxR;
+                                            }
+                                            drop.r = targetR;
+                                            drop.momentumX += dx * 0.1;
+                                            drop.spreadX = 0;
+                                            drop.spreadY = 0;
+                                            drop2.killed = true;
+                                            drop.momentum = Math.max(
+                                                drop2.momentum,
+                                                Math.min(
+                                                    40,
+                                                    drop.momentum +
+                                                        targetR *
+                                                            self.options
+                                                                .collisionBoostMultiplier +
+                                                        self.options
+                                                            .collisionBoost,
+                                                ),
+                                            );
+                                        }
+                                    }
+                                });
+                        }
+
+                        // Slow the momentum
+                        drop.momentum -=
+                            Math.max(
+                                1,
+                                self.options.minR * 0.5 - drop.momentum,
+                            ) *
+                            0.1 *
+                            timeScale;
+                        if (drop.momentum < 0) drop.momentum = 0;
+                        drop.momentumX *= Math.pow(0.7, timeScale);
+
+                        if (!drop.killed) {
+                            newDrops.push(drop);
+                            if (moved && self.options.dropletsRate > 0) {
+                                self.clearDroplets(
+                                    drop.x,
+                                    drop.y,
+                                    drop.r *
+                                        self.options
+                                            .dropletsCleaningRadiusMultiplier,
+                                );
+                            }
+                            self.drawDrop(self.ctx, drop);
+                        }
+                    });
+
+                    this.drops = newDrops;
+                };
+
+                // NOTE: unlike the original, update() does not schedule its own
+                // requestAnimationFrame - the plugin's master loop drives it so
+                // playback can be paused.
+                Raindrops.prototype.update = function () {
+                    this.ctx.clearRect(0, 0, this.width, this.height);
+
+                    var now = Date.now();
+                    if (this.lastRender == null) this.lastRender = now;
+                    var deltaT = now - this.lastRender;
+                    var timeScale = deltaT / ((1 / 60) * 1000);
+                    if (timeScale > 1.1) timeScale = 1.1;
+                    timeScale *= this.options.globalTimeScale;
+                    this.lastRender = now;
+
+                    this.updateDrops(timeScale);
+                };
+
+                // ---------------------------------------------------------------
+                // RainRenderer (ported from RainEffect src/rain-renderer.js)
+                //
+                // Draws the water map through the refraction shader, sampling
+                // the mirrored page as the background texture.
+                // ---------------------------------------------------------------
+
+                var RENDERER_DEFAULTS = {
+                    minRefraction: 256,
+                    maxRefraction: 512,
+                    brightness: 1.04,
+                    alphaMultiply: 6,
+                    alphaSubtract: 3,
+                };
+
+                /**
+                 * @param {HTMLCanvasElement} canvas - Output WebGL canvas
+                 * @param {HTMLCanvasElement} canvasLiquid - Raindrops water map
+                 * @param {HTMLCanvasElement} canvasBg - Mirrored page canvas
+                 * @param {object} [options] - Overrides for RENDERER_DEFAULTS
+                 */
+                function RainRenderer(canvas, canvasLiquid, canvasBg, options) {
+                    this.canvas = canvas;
+                    this.canvasLiquid = canvasLiquid;
+                    this.canvasBg = canvasBg;
+                    this.options = extend({}, RENDERER_DEFAULTS, options);
+                    this.width = canvas.width;
+                    this.height = canvas.height;
+
+                    // Premultiplied alpha so transparent regions composite
+                    // cleanly over the page below the iframe.
+                    this.gl = new GL(
+                        canvas,
+                        { alpha: true, premultipliedAlpha: true },
+                        VERT_SHADER,
+                        FRAG_SHADER,
+                    );
+
+                    var gl = this.gl;
+                    gl.createUniform(
+                        '2f',
+                        'resolution',
+                        this.width,
+                        this.height,
+                    );
+                    gl.createUniform(
+                        '1f',
+                        'minRefraction',
+                        this.options.minRefraction,
+                    );
+                    gl.createUniform(
+                        '1f',
+                        'refractionDelta',
+                        this.options.maxRefraction - this.options.minRefraction,
+                    );
+                    gl.createUniform(
+                        '1f',
+                        'brightness',
+                        this.options.brightness,
+                    );
+                    gl.createUniform(
+                        '1f',
+                        'alphaMultiply',
+                        this.options.alphaMultiply,
+                    );
+                    gl.createUniform(
+                        '1f',
+                        'alphaSubtract',
+                        this.options.alphaSubtract,
+                    );
+
+                    gl.createTexture(this.canvasLiquid, 0);
+                    gl.createUniform('1i', 'waterMap', 0);
+                    gl.createTexture(this.canvasBg, 1);
+                    gl.createUniform('1i', 'textureBg', 1);
+                }
+
+                /**
+                 * Render one frame.
+                 *
+                 * @param {boolean} bgChanged - Upload the mirror texture again
+                 * @returns {boolean} false if the upload was blocked (tainted)
+                 */
+                RainRenderer.prototype.draw = function (bgChanged) {
+                    var gl = this.gl;
+
+                    gl.activeTexture(0);
+                    gl.updateTexture(this.canvasLiquid);
+
+                    if (bgChanged) {
+                        gl.activeTexture(1);
+                        try {
+                            gl.updateTexture(this.canvasBg);
+                        } catch (e) {
+                            // A cross-origin source tainted the mirror canvas
+                            return false;
+                        }
+                    }
+
+                    gl.draw();
+                    return true;
+                };
+
+                // ---------------------------------------------------------------
+                // DisplayCapture
+                //
+                // Real-time tab self-capture via getDisplayMedia with
+                // preferCurrentTab. Gives a live compositor feed of the base
+                // page - video, CSS animations, WebGL, DOM changes - which
+                // PageMirror samples every frame while active.
+                //
+                // Signage deployments can grant this without a prompt or
+                // user gesture using the ScreenCaptureWithoutGestureAllowedForOrigins
+                // enterprise policy, or Chrome's --auto-accept-this-tab-capture
+                // flag. The captured feed includes this overlay itself, so
+                // drops may faintly re-refract already-rendered drops; in
+                // practice the second-order effect is not noticeable.
+                // ---------------------------------------------------------------
+
+                var DisplayCapture = {
+                    video: null,
+                    stream: null,
+                    active: false,
+                    starting: false,
+
+                    supported: function () {
+                        return !!(
+                            navigator.mediaDevices &&
+                            navigator.mediaDevices.getDisplayMedia
+                        );
+                    },
+
+                    /**
+                     * Request tab capture and wire up the hidden video sink.
+                     *
+                     * @param {function} onResult - Called with (ok, error)
+                     */
+                    start: function (onResult) {
+                        var self = this;
+                        if (this.active) {
+                            onResult(true);
+                            return;
+                        }
+                        if (this.starting) return;
+                        if (!this.supported()) {
+                            onResult(
+                                false,
+                                new Error('getDisplayMedia is not supported'),
+                            );
+                            return;
+                        }
+                        this.starting = true;
+
+                        var request;
+                        try {
+                            request = navigator.mediaDevices.getDisplayMedia({
+                                video: { frameRate: { ideal: 30 } },
+                                audio: false,
+                                preferCurrentTab: true,
+                                selfBrowserSurface: 'include',
+                            });
+                        } catch (e) {
+                            this.starting = false;
+                            onResult(false, e);
+                            return;
+                        }
+
+                        request
+                            .then(function (stream) {
+                                self.starting = false;
+                                self.stream = stream;
+
+                                var track = stream.getVideoTracks()[0];
+                                if (track) {
+                                    // The user (or browser) stopped sharing -
+                                    // the mirror falls back to DOM capture
+                                    track.addEventListener(
+                                        'ended',
+                                        function () {
+                                            self.deactivate();
+                                        },
+                                    );
+                                }
+
+                                var video = document.createElement('video');
+                                video.muted = true;
+                                video.setAttribute('playsinline', '');
+                                video.srcObject = stream;
+                                var played = video.play();
+                                if (played && played.catch) {
+                                    played.catch(function () {
+                                        /* Ignore - frames still arrive */
+                                    });
+                                }
+
+                                self.video = video;
+                                self.active = true;
+                                onResult(true);
+                            })
+                            ['catch'](function (err) {
+                                self.starting = false;
+                                onResult(false, err);
+                            });
+                    },
+
+                    deactivate: function () {
+                        this.active = false;
+                        if (this.stream) {
+                            var tracks = this.stream.getTracks();
+                            for (var i = 0; i < tracks.length; i++) {
+                                tracks[i].stop();
+                            }
+                        }
+                        this.stream = null;
+                        this.video = null;
+                    },
+
+                    /** @returns {boolean} true when frames can be drawn */
+                    ready: function () {
+                        return (
+                            this.active &&
+                            this.video !== null &&
+                            this.video.readyState >= 2 // HAVE_CURRENT_DATA
+                        );
+                    },
+                };
+
+                // ---------------------------------------------------------------
+                // PageMirror
+                //
+                // Renders the same-origin parent page into a small staging
+                // canvas used as the refraction texture:
+                //
+                //   1. Static layer - the parent DOM is serialised into an SVG
+                //      <foreignObject> snapshot (with same-origin images
+                //      inlined as data URIs and page stylesheets embedded) and
+                //      rasterised. Refreshed every snapshot_interval seconds.
+                //   2. Live layer - <video> and <canvas> elements in the
+                //      parent are drawn on top every frame so moving content
+                //      refracts in real time.
+                //
+                // While DisplayCapture is active the DOM layers are bypassed
+                // and the captured tab feed is copied in every frame instead.
+                //
+                // The mirror is deliberately low resolution: refraction reads
+                // it as a blurred glass texture, and downsampling hides
+                // rasterisation artifacts.
+                // ---------------------------------------------------------------
+
+                /**
+                 * @param {number} width - Mirror canvas width
+                 * @param {number} height - Mirror canvas height
+                 * @param {object} options
+                 * @param {string|null} options.selector - Parent element to mirror
+                 * @param {string} options.fallbackColor - Used when capture fails
+                 * @param {number} options.snapshotInterval - Seconds between snapshots
+                 */
+                function PageMirror(width, height, options) {
+                    this.width = width;
+                    this.height = height;
+                    this.selector = options.selector || null;
+                    this.fallbackColor = options.fallbackColor;
+                    this.snapshotIntervalMs = options.snapshotInterval * 1000;
+
+                    this.canvas = createCanvas(width, height);
+                    this.ctx = this.canvas.getContext('2d');
+                    this.staticCanvas = createCanvas(width, height);
+                    this.staticCtx = this.staticCanvas.getContext('2d');
+
+                    this.parentWin = null;
+                    this.parentDoc = null;
+                    this.available = false;
+                    this.liveElements = [];
+                    this.liveBlocked = false;
+                    this.taintTested = false;
+                    this.pageColor = null;
+                    this.imageCache = {};
+                    this.lastSnapshot = 0;
+                    this.snapshotPending = false;
+                    this.hasStatic = false;
+                    this.staticDirty = true;
+
+                    try {
+                        if (
+                            window.parent &&
+                            window.parent !== window &&
+                            window.parent.document
+                        ) {
+                            this.parentWin = window.parent;
+                            this.parentDoc = window.parent.document;
+                            this.available = true;
+                        }
+                    } catch (e) {
+                        // Cross-origin parent - fall back to a flat colour
+                        this.available = false;
+                    }
+
+                    this.compose();
+                }
+
+                PageMirror.prototype.root = function () {
+                    var root = null;
+                    if (this.selector) {
+                        try {
+                            root = this.parentDoc.querySelector(this.selector);
+                        } catch (e) {
+                            /* Invalid selector - fall through to body */
+                        }
+                    }
+                    return root || this.parentDoc.body;
+                };
+
+                /**
+                 * Best guess at the page background colour, walking from body
+                 * to the root element, defaulting to the fallback colour.
+                 *
+                 * @returns {string} CSS colour
+                 */
+                PageMirror.prototype.resolvePageColor = function () {
+                    var els = [
+                        this.parentDoc.body,
+                        this.parentDoc.documentElement,
+                    ];
+                    for (var i = 0; i < els.length; i++) {
+                        try {
+                            var color = this.parentWin
+                                .getComputedStyle(els[i])
+                                .getPropertyValue('background-color');
+                            if (
+                                color &&
+                                color !== 'transparent' &&
+                                color !== 'rgba(0, 0, 0, 0)'
+                            ) {
+                                return color;
+                            }
+                        } catch (e) {
+                            /* Ignore */
+                        }
+                    }
+                    return this.fallbackColor;
+                };
+
+                /**
+                 * Convert a same-origin image to a data URI so it renders
+                 * inside the SVG snapshot (external resources do not load in
+                 * SVG images). Returns null for cross-origin/tainting images.
+                 *
+                 * @param {HTMLImageElement} img
+                 * @returns {string|null}
+                 */
+                PageMirror.prototype.inlineImage = function (img) {
+                    var src = img.currentSrc || img.src;
+                    if (!src) return null;
+                    if (
+                        Object.prototype.hasOwnProperty.call(
+                            this.imageCache,
+                            src,
+                        )
+                    ) {
+                        return this.imageCache[src];
+                    }
+
+                    var dataUri = null;
+                    if (
+                        img.complete &&
+                        img.naturalWidth > 0 &&
+                        img.naturalHeight > 0
+                    ) {
+                        try {
+                            var buffer = createCanvas(
+                                img.naturalWidth,
+                                img.naturalHeight,
+                            );
+                            buffer.getContext('2d').drawImage(img, 0, 0);
+                            dataUri = buffer.toDataURL('image/png');
+                        } catch (e) {
+                            // Cross-origin image tainted the buffer; the
+                            // buffer is discarded either way
+                            dataUri = null;
+                        }
+                    }
+                    this.imageCache[src] = dataUri;
+                    return dataUri;
+                };
+
+                /**
+                 * Collect the text of every readable stylesheet in the parent
+                 * document so the snapshot lays out with the page's styles.
+                 *
+                 * @returns {string} Combined CSS text
+                 */
+                PageMirror.prototype.collectStyles = function () {
+                    var css = '';
+                    var sheets = this.parentDoc.styleSheets;
+                    for (var i = 0; i < sheets.length; i++) {
+                        try {
+                            var rules = sheets[i].cssRules;
+                            if (!rules) continue;
+                            for (var j = 0; j < rules.length; j++) {
+                                css += rules[j].cssText + '\n';
+                            }
+                        } catch (e) {
+                            /* Cross-origin stylesheet - skip */
+                        }
+                    }
+                    return css;
+                };
+
+                /**
+                 * Rasterise the parent DOM into the static layer via an SVG
+                 * foreignObject image. Runs asynchronously; failures leave the
+                 * previous static layer in place.
+                 */
+                PageMirror.prototype.snapshot = function () {
+                    if (!this.available || this.snapshotPending) return;
+                    this.snapshotPending = true;
+                    this.lastSnapshot = Date.now();
+
+                    var self = this;
+                    var pw = this.parentWin.innerWidth;
+                    var ph = this.parentWin.innerHeight;
+
+                    this.pageColor = this.resolvePageColor();
+
+                    var svg;
+                    try {
+                        var root = this.root();
+                        var clone = root.cloneNode(true);
+
+                        // Inline same-origin images; clone order matches the
+                        // original so the lists correspond by index
+                        var origImgs = root.querySelectorAll('img');
+                        var cloneImgs = clone.querySelectorAll('img');
+                        for (var i = 0; i < cloneImgs.length; i++) {
+                            var dataUri =
+                                i < origImgs.length
+                                    ? this.inlineImage(origImgs[i])
+                                    : null;
+                            if (dataUri) {
+                                cloneImgs[i].setAttribute('src', dataUri);
+                                cloneImgs[i].removeAttribute('srcset');
+                            } else if (cloneImgs[i].parentNode) {
+                                cloneImgs[i].parentNode.removeChild(
+                                    cloneImgs[i],
+                                );
+                            }
+                        }
+
+                        // Strip what cannot (or must not) rasterise: scripts,
+                        // iframes (including this overlay) and the live
+                        // video/canvas elements drawn separately each frame
+                        var strip = clone.querySelectorAll(
+                            'script, iframe, video, canvas, noscript',
+                        );
+                        for (var k = 0; k < strip.length; k++) {
+                            if (strip[k].parentNode) {
+                                strip[k].parentNode.removeChild(strip[k]);
+                            }
+                        }
+
+                        clone.style.width = pw + 'px';
+                        clone.style.height = ph + 'px';
+                        clone.style.margin = '0';
+
+                        var container = this.parentDoc.createElement('div');
+                        var styleEl = this.parentDoc.createElement('style');
+                        styleEl.textContent = this.collectStyles();
+                        container.appendChild(styleEl);
+                        container.appendChild(clone);
+
+                        var markup = new XMLSerializer().serializeToString(
+                            container,
+                        );
+                        svg =
+                            '<svg xmlns="http://www.w3.org/2000/svg" width="' +
+                            pw +
+                            '" height="' +
+                            ph +
+                            '"><foreignObject width="100%" height="100%">' +
+                            markup +
+                            '</foreignObject></svg>';
+                    } catch (e) {
+                        this.snapshotPending = false;
+                        return;
+                    }
+
+                    // NOTE: must be a data URI - Chrome taints canvases drawn
+                    // from blob: SVG images, but not from data: SVG images
+                    var url =
+                        'data:image/svg+xml;charset=utf-8,' +
+                        encodeURIComponent(svg);
+                    var image = new Image();
+
+                    image.onload = function () {
+                        self.staticCtx.clearRect(0, 0, self.width, self.height);
+                        self.staticCtx.drawImage(
+                            image,
+                            0,
+                            0,
+                            self.width,
+                            self.height,
+                        );
+                        self.hasStatic = true;
+                        self.staticDirty = true;
+                        self.snapshotPending = false;
+                    };
+                    image.onerror = function () {
+                        self.snapshotPending = false;
+                    };
+                    image.src = url;
+                };
+
+                /**
+                 * Refresh the list of live parent elements mirrored per frame.
+                 */
+                PageMirror.prototype.refreshLiveElements = function () {
+                    if (!this.available || this.liveBlocked) {
+                        this.liveElements = [];
+                        return;
+                    }
+                    var found = this.root().querySelectorAll('video, canvas');
+                    var next = [];
+                    for (var i = 0; i < found.length; i++) {
+                        next.push(found[i]);
+                        // New element - retest the canvas for tainting after
+                        // the next compose
+                        if (this.liveElements.indexOf(found[i]) === -1) {
+                            this.taintTested = false;
+                        }
+                    }
+                    this.liveElements = next;
+                };
+
+                /**
+                 * Draw one frame of the mirror.
+                 *
+                 * @returns {boolean} true if the mirror canvas changed
+                 */
+                PageMirror.prototype.update = function () {
+                    // Real-time compositor feed - preferred whenever active
+                    if (DisplayCapture.ready()) {
+                        this.ctx.globalCompositeOperation = 'source-over';
+                        this.ctx.drawImage(
+                            DisplayCapture.video,
+                            0,
+                            0,
+                            this.width,
+                            this.height,
+                        );
+                        // Recompose DOM layers promptly if capture ends later
+                        this.staticDirty = true;
+                        return true;
+                    }
+
+                    if (!this.available) {
+                        if (this.staticDirty) {
+                            this.compose();
+                            this.staticDirty = false;
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    if (
+                        Date.now() - this.lastSnapshot >
+                        this.snapshotIntervalMs
+                    ) {
+                        this.snapshot();
+                        this.refreshLiveElements();
+                    }
+
+                    var hasLive =
+                        !this.liveBlocked && this.liveElements.length > 0;
+                    if (!hasLive && !this.staticDirty) {
+                        return false;
+                    }
+                    this.staticDirty = false;
+
+                    this.compose();
+
+                    if (hasLive && !this.taintTested) {
+                        this.taintTest();
+                    }
+                    return true;
+                };
+
+                PageMirror.prototype.compose = function () {
+                    var ctx = this.ctx;
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.fillStyle = this.pageColor || this.fallbackColor;
+                    ctx.fillRect(0, 0, this.width, this.height);
+
+                    if (this.hasStatic) {
+                        ctx.drawImage(
+                            this.staticCanvas,
+                            0,
+                            0,
+                            this.width,
+                            this.height,
+                        );
+                    }
+
+                    if (this.liveBlocked || !this.available) return;
+
+                    var scaleX = this.width / this.parentWin.innerWidth;
+                    var scaleY = this.height / this.parentWin.innerHeight;
+                    for (var i = 0; i < this.liveElements.length; i++) {
+                        var el = this.liveElements[i];
+                        if (
+                            el.tagName === 'VIDEO' &&
+                            el.readyState < 2 // HAVE_CURRENT_DATA
+                        ) {
+                            continue;
+                        }
+                        try {
+                            var rect = el.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) {
+                                continue;
+                            }
+                            ctx.drawImage(
+                                el,
+                                rect.left * scaleX,
+                                rect.top * scaleY,
+                                rect.width * scaleX,
+                                rect.height * scaleY,
+                            );
+                        } catch (e) {
+                            /* Ignore - element not drawable this frame */
+                        }
+                    }
+                };
+
+                /**
+                 * Drawing a cross-origin video (or a canvas that itself is
+                 * tainted) silently taints the mirror, which would then fail
+                 * to upload as a WebGL texture. Detect it once per live
+                 * element set and, if tainted, permanently disable the live
+                 * layer and rebuild clean canvases.
+                 */
+                PageMirror.prototype.taintTest = function () {
+                    this.taintTested = true;
+                    try {
+                        this.ctx.getImageData(0, 0, 1, 1);
+                    } catch (e) {
+                        this.blockLive();
+                    }
+                };
+
+                PageMirror.prototype.blockLive = function () {
+                    // A tainted canvas cannot be cleaned - recreate both
+                    // layers so the mirror is guaranteed uploadable again
+                    this.liveBlocked = true;
+                    this.liveElements = [];
+                    this.canvas = createCanvas(this.width, this.height);
+                    this.ctx = this.canvas.getContext('2d');
+                    this.staticCanvas = createCanvas(this.width, this.height);
+                    this.staticCtx = this.staticCanvas.getContext('2d');
+                    this.hasStatic = false;
+                    this.staticDirty = true;
+                    this.compose();
+                };
+
+                // ---------------------------------------------------------------
+                // Plugin state
+                // ---------------------------------------------------------------
+
+                var dropAlpha = null;
+                var dropColor = null;
+                var texturesLoading = false;
+                var pendingConfig = null;
+
+                var canvas = document.getElementById('rain-canvas');
+                var raindrops = null;
+                var renderer = null;
+                var mirror = null;
+                var rafId = null;
+                var playing = false;
+                var built = false;
+                var activeConfig = null;
+                var resizeTimer = null;
+                var taintReported = false;
+                var displayFailReported = false;
+                var displayRetryArmed = false;
+
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'rain-overlay',
+                        version: '1.1.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        activeConfig = {
+                            intensity: clamp(
+                                config.intensity !== undefined
+                                    ? Number(config.intensity)
+                                    : 0.5,
+                                0,
+                                1,
+                            ),
+                            captureMode:
+                                config.capture_mode === 'display' ||
+                                config.capture_mode === 'dom'
+                                    ? config.capture_mode
+                                    : 'auto',
+                            snapshotInterval: clamp(
+                                config.snapshot_interval !== undefined
+                                    ? Number(config.snapshot_interval)
+                                    : 10,
+                                0.25,
+                                300,
+                            ),
+                            backgroundSelector:
+                                typeof config.background_selector ===
+                                    'string' && config.background_selector
+                                    ? config.background_selector
+                                    : null,
+                            fallbackColor:
+                                typeof config.fallback_color === 'string' &&
+                                config.fallback_color
+                                    ? config.fallback_color
+                                    : '#1b2531',
+                        };
+
+                        hideError();
+
+                        if (dropAlpha && dropColor) {
+                            configure(true);
+                        } else if (texturesLoading) {
+                            pendingConfig = activeConfig;
+                        } else {
+                            pendingConfig = activeConfig;
+                            loadDropTextures();
+                        }
+                    },
+
+                    onPlay: function () {
+                        playing = true;
+                        startLoop();
+                    },
+                });
+
+                // ---------------------------------------------------------------
+                // Setup / teardown
+                // ---------------------------------------------------------------
+
+                function clamp(value, min, max) {
+                    if (isNaN(value)) return min;
+                    return Math.max(min, Math.min(max, value));
+                }
+
+                /**
+                 * Load the inlined drop sprite textures, then apply any
+                 * pending configuration.
+                 */
+                function loadDropTextures() {
+                    texturesLoading = true;
+                    var remaining = 2;
+                    var failed = false;
+
+                    function done() {
+                        remaining--;
+                        if (remaining > 0 || failed) return;
+                        texturesLoading = false;
+                        if (pendingConfig) {
+                            pendingConfig = null;
+                            configure(true);
+                        }
+                    }
+
+                    function fail() {
+                        if (failed) return;
+                        failed = true;
+                        texturesLoading = false;
+                        plugin.error({
+                            code: 'TEXTURE_LOAD_FAILED',
+                            message:
+                                'Failed to decode the inlined drop sprite textures.',
+                            fatal: true,
+                        });
+                        showError('Failed to load rain textures');
+                    }
+
+                    dropAlpha = new Image();
+                    dropAlpha.onload = done;
+                    dropAlpha.onerror = fail;
+                    dropAlpha.src = DROP_ALPHA_SRC;
+
+                    dropColor = new Image();
+                    dropColor.onload = done;
+                    dropColor.onerror = fail;
+                    dropColor.src = DROP_COLOR_SRC;
+                }
+
+                /**
+                 * (Re)build the simulation, mirror and renderer from
+                 * activeConfig.
+                 *
+                 * @param {boolean} [signalReady] - Send ready to the host
+                 *     (new config only, not resize rebuilds)
+                 */
+                function configure(signalReady) {
+                    stopLoop();
+                    built = false;
+
+                    var dpi = Math.min(window.devicePixelRatio || 1, MAX_DPI);
+                    canvas.width = window.innerWidth * dpi;
+                    canvas.height = window.innerHeight * dpi;
+
+                    var intensity = activeConfig.intensity;
+
+                    try {
+                        raindrops = new Raindrops(
+                            canvas.width,
+                            canvas.height,
+                            dpi,
+                            dropAlpha,
+                            dropColor,
+                            {
+                                minR: 20,
+                                maxR: 50,
+                                rainChance: 0.15 + 0.4 * intensity,
+                                rainLimit: Math.max(
+                                    1,
+                                    Math.round(2 + 8 * intensity),
+                                ),
+                                dropletsRate: 20 + 60 * intensity,
+                                dropletsSize: [3, 5.5],
+                                trailRate: 1,
+                                trailScaleRange: [0.25, 0.35],
+                                collisionRadius: 0.45,
+                                collisionRadiusIncrease: 0.0002,
+                                dropletsCleaningRadiusMultiplier: 0.28,
+                            },
+                        );
+
+                        // Quarter-resolution mirror: refraction reads it as a
+                        // soft glass texture, so full detail is wasted work
+                        var mirrorWidth = Math.max(
+                            64,
+                            Math.round(window.innerWidth / 4),
+                        );
+                        var mirrorHeight = Math.max(
+                            64,
+                            Math.round(window.innerHeight / 4),
+                        );
+                        mirror = new PageMirror(mirrorWidth, mirrorHeight, {
+                            selector: activeConfig.backgroundSelector,
+                            fallbackColor: activeConfig.fallbackColor,
+                            snapshotInterval: activeConfig.snapshotInterval,
+                        });
+
+                        renderer = new RainRenderer(
+                            canvas,
+                            raindrops.canvas,
+                            mirror.canvas,
+                        );
+                    } catch (e) {
+                        plugin.error({
+                            code: 'WEBGL_UNAVAILABLE',
+                            message:
+                                'Failed to initialise the WebGL rain renderer: ' +
+                                (e && e.message ? e.message : 'unknown error'),
+                            fatal: true,
+                        });
+                        showError('WebGL is not available');
+                        return;
+                    }
+
+                    if (!mirror.available) {
+                        plugin.error({
+                            code: 'PARENT_CAPTURE_UNAVAILABLE',
+                            message:
+                                'The base page DOM could not be mirrored (cross-origin parent or standalone). Drops will refract the fallback colour unless display capture is granted.',
+                            fatal: false,
+                        });
+                    } else {
+                        mirror.snapshot();
+                        mirror.refreshLiveElements();
+                    }
+
+                    if (activeConfig.captureMode === 'dom') {
+                        DisplayCapture.deactivate();
+                    } else {
+                        attemptDisplayCapture(
+                            activeConfig.captureMode === 'display',
+                        );
+                    }
+
+                    built = true;
+                    if (signalReady) {
+                        plugin.ready();
+                    }
+
+                    if (playing) {
+                        startLoop();
+                    }
+                }
+
+                /**
+                 * Try to start real-time tab capture. In kiosk deployments
+                 * the browser grants this immediately (see the DisplayCapture
+                 * notes); elsewhere the request is usually rejected for lack
+                 * of a user gesture, so a one-shot retry is armed on the next
+                 * interaction and the DOM mirror carries on meanwhile.
+                 *
+                 * @param {boolean} explicit - capture_mode is 'display', so
+                 *     report the failure to the host
+                 */
+                function attemptDisplayCapture(explicit) {
+                    DisplayCapture.start(function (ok, err) {
+                        if (ok) {
+                            console.info(
+                                '[rain-overlay] display capture active - refracting the live tab feed',
+                            );
+                            return;
+                        }
+                        if (explicit && !displayFailReported) {
+                            displayFailReported = true;
+                            plugin.error({
+                                code: 'DISPLAY_CAPTURE_FAILED',
+                                message:
+                                    'Tab capture was not granted (' +
+                                    (err && err.name
+                                        ? err.name
+                                        : 'unknown error') +
+                                    '). Falling back to DOM mirroring; video and canvas elements still update every frame.',
+                                fatal: false,
+                            });
+                        }
+                        armDisplayRetry();
+                    });
+                }
+
+                function armDisplayRetry() {
+                    if (displayRetryArmed) return;
+                    displayRetryArmed = true;
+                    var retry = function () {
+                        document.removeEventListener('pointerdown', retry);
+                        displayRetryArmed = false;
+                        if (
+                            activeConfig &&
+                            activeConfig.captureMode !== 'dom'
+                        ) {
+                            attemptDisplayCapture(false);
+                        }
+                    };
+                    document.addEventListener('pointerdown', retry);
+                }
+
+                // ---------------------------------------------------------------
+                // Master animation loop
+                // ---------------------------------------------------------------
+
+                function frame() {
+                    rafId = requestAnimationFrame(frame);
+
+                    var mirrorChanged = mirror.update();
+                    raindrops.update();
+
+                    if (!renderer.draw(mirrorChanged)) {
+                        // The mirror canvas was tainted by a cross-origin
+                        // source - drop the capture layers and carry on
+                        mirror.blockLive();
+                        if (!taintReported) {
+                            taintReported = true;
+                            plugin.error({
+                                code: 'PARENT_CAPTURE_TAINTED',
+                                message:
+                                    'A cross-origin source tainted the page mirror. Page capture disabled; drops will refract the page colour.',
+                                fatal: false,
+                            });
+                        }
+                        renderer.canvasBg = mirror.canvas;
+                        renderer.draw(true);
+                    }
+                }
+
+                function startLoop() {
+                    if (!built || rafId !== null) return;
+                    // Avoid a physics jump after a pause
+                    raindrops.lastRender = null;
+                    rafId = requestAnimationFrame(frame);
+                }
+
+                function stopLoop() {
+                    if (rafId !== null) {
+                        cancelAnimationFrame(rafId);
+                        rafId = null;
+                    }
+                }
+
+                // Save GPU time while the page is not visible
+                document.addEventListener('visibilitychange', function () {
+                    if (document.hidden) {
+                        stopLoop();
+                    } else if (playing) {
+                        startLoop();
+                    }
+                });
+
+                window.addEventListener('resize', function () {
+                    if (resizeTimer) clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(function () {
+                        resizeTimer = null;
+                        if (activeConfig && dropAlpha && dropColor) {
+                            configure();
+                        }
+                    }, RESIZE_DEBOUNCE_MS);
+                });
+
+                // ---------------------------------------------------------------
+                // Error overlay helpers
+                // ---------------------------------------------------------------
+
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+
+                function hideError() {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.style.display = 'none';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>

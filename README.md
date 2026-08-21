@@ -25,6 +25,7 @@ plugin.js          Core SDK - exposes the global SignagePlugin object
 youtube.html       YouTube player plugin template
 instagram.html     Instagram embed plugin template
 news-ticker.html   Scrolling RSS news ticker plugin template
+rain/rain.html     Transparent rain-on-glass overlay plugin template
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -376,6 +377,64 @@ The feed is fetched through the host's relative proxy route
 CORS headers work in production.
 
 **Error codes:** `MISSING_FEED_URL`, `FEED_LOAD_FAILED`, `FEED_REFRESH_FAILED`
+
+---
+
+### Rain Overlay (`rain/rain.html`)
+
+A fullscreen, fully transparent overlay that renders rain drops on glass with
+WebGL, adapted from [Codrops' RainEffect](https://github.com/codrops/RainEffect).
+Position the iframe above other content; pixels without drops are output with
+alpha 0 so the page below shows through, and each drop refracts the actual
+page rendered underneath it.
+
+The base page is mirrored into the refraction texture one of two ways:
+
+- **Display capture** (real time): `getDisplayMedia` tab self-capture gives a
+  live compositor feed of the base page - video, CSS animations, WebGL,
+  everything - at full frame rate. The browser must grant tab capture: kiosk
+  deployments should set the `ScreenCaptureWithoutGestureAllowedForOrigins`
+  enterprise policy (or launch Chrome with `--auto-accept-this-tab-capture`)
+  so no prompt or user gesture is needed. The captured feed includes the
+  overlay itself; the second-order "drops refracting drops" effect is not
+  noticeable in practice.
+- **DOM mirroring** (fallback, no permissions): the **same-origin** parent DOM
+  is rendered to a staging canvas - a periodic SVG `foreignObject` snapshot
+  for static content (same-origin images inlined, page stylesheets embedded),
+  plus per-frame copies of live `<video>` and `<canvas>` elements. CSS
+  animations and other animated DOM only update at the snapshot interval.
+
+When neither works (cross-origin parent, standalone testing) the drops
+refract a flat fallback colour instead.
+
+The host should embed the iframe with `allowtransparency`,
+`allow="display-capture"` and `pointer-events: none` so clicks pass through
+to the page underneath.
+
+**Capabilities:** Requires play signal, cannot finish (runs forever), dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `intensity` | number | `0.5` | Rain heaviness, `0` (light drizzle) to `1` (downpour) |
+| `capture_mode` | string | `'auto'` | `'display'` (real-time tab capture), `'dom'` (DOM mirroring), or `'auto'` (try display, fall back to dom) |
+| `snapshot_interval` | number | `10` | Seconds between DOM re-captures in dom mode (live video/canvas mirror every frame; min 0.25) |
+| `background_selector` | string | -- | CSS selector for the parent element to mirror in dom mode (defaults to the page body) |
+| `fallback_color` | string | `'#1b2531'` | Colour refracted when the base page cannot be captured |
+
+In dom mode, cross-origin images, videos and stylesheets in the base page are
+skipped rather than allowed to taint the mirror canvas; if a cross-origin
+source does taint it, page capture is disabled (non-fatal
+`PARENT_CAPTURE_TAINTED`) and the drops fall back to refracting the page
+colour. If display capture is requested but not granted, the plugin reports a
+non-fatal `DISPLAY_CAPTURE_FAILED` and continues with DOM mirroring, retrying
+capture on the next user interaction.
+
+**Error codes:** `WEBGL_UNAVAILABLE`, `TEXTURE_LOAD_FAILED`,
+`PARENT_CAPTURE_UNAVAILABLE`, `PARENT_CAPTURE_TAINTED`,
+`DISPLAY_CAPTURE_FAILED`
 
 ---
 
