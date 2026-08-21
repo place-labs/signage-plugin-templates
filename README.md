@@ -344,7 +344,8 @@ The URL can also be provided via `content.url`.
 ### News Ticker (`news-ticker.html`)
 
 A horizontally scrolling news ticker that fetches an RSS 2.0 or Atom feed and
-loops the top headlines with images (where available). Designed for narrow,
+loops the top headlines with full-height images (where available), behind a
+fixed "Breaking News" arrow label pinned to the left edge. Designed for narrow,
 full-width strip layouts: all sizing uses `vh` units so the ticker scales from
 the iframe height alone. The loop point is marked by a double-width gap
 between the last and first headline.
@@ -360,6 +361,8 @@ content.
 | `max_items` | number | `10` | Number of top headlines to scroll |
 | `scroll_speed` | number | `1.5` | Scroll speed in strip-heights per second |
 | `show_images` | boolean | `true` | Show article images where available |
+| `label_text` | string | `'Breaking News'` | Fixed label on the left edge (empty string hides it) |
+| `label_color` | string | `'#eb0d41'` | CSS background colour of the label and arrow |
 
 The feed URL can also be provided via `content.url`.
 

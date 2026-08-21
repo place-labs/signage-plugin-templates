@@ -52,11 +52,10 @@
                 flex-shrink: 0;
             }
             .ticker-item img {
-                height: 72vh;
+                height: 100vh;
                 width: auto;
                 max-width: 300vh;
                 object-fit: cover;
-                border-radius: 6vh;
                 margin-right: 18vh;
             }
             .ticker-item .title {
@@ -79,6 +78,40 @@
             .gap--loop {
                 width: 180vh;
             }
+            /* Fixed label pinned to the left edge; the ticker scrolls
+               underneath it and items disappear at the arrow tip. The
+               opaque black background hides passing content. */
+            #news-label {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 5;
+                display: flex;
+                align-items: center;
+                background: #000;
+            }
+            #news-label .label-text {
+                display: flex;
+                align-items: center;
+                height: 100%;
+                padding: 0 24vh;
+                background: #eb0d41;
+                color: #fff;
+                font-family:
+                    -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+                    sans-serif;
+                font-size: 30vh;
+                font-weight: 700;
+                white-space: nowrap;
+            }
+            #news-label .label-arrow {
+                width: 0;
+                height: 0;
+                border-top: 50vh solid transparent;
+                border-bottom: 50vh solid transparent;
+                border-left: 32vh solid #eb0d41;
+            }
             #error-overlay {
                 display: none;
                 position: absolute;
@@ -100,6 +133,10 @@
         <div id="ticker">
             <div id="track"></div>
         </div>
+        <div id="news-label">
+            <div class="label-text" id="label-text">Breaking News</div>
+            <div class="label-arrow" id="label-arrow"></div>
+        </div>
         <div id="error-overlay"></div>
 
         <script src="plugin.js"></script>
@@ -120,6 +157,13 @@
                 //                                  speed scales with iframe size.
                 //   config.show_images  (boolean, default true) - Show article
                 //                                  images where available.
+                //   config.label_text   (string, default 'Breaking News') -
+                //                                  Text for the fixed label on
+                //                                  the left. Empty string hides
+                //                                  the label entirely.
+                //   config.label_color  (string, default '#eb0d41') - CSS
+                //                                  background colour of the
+                //                                  label and its arrow.
                 //
                 // The feed is fetched through the host's relative proxy route
                 // (PROXY_ROUTE) so feeds without CORS headers still work.
@@ -161,6 +205,20 @@
                                 'Display article images where available.',
                             default: true,
                         },
+                        label_text: {
+                            type: 'string',
+                            title: 'Label Text',
+                            description:
+                                'Text for the fixed label on the left edge. Leave empty to hide the label.',
+                            default: 'Breaking News',
+                        },
+                        label_color: {
+                            type: 'string',
+                            title: 'Label Colour',
+                            description:
+                                'CSS background colour of the label and arrow.',
+                            default: '#eb0d41',
+                        },
                     },
                     required: ['feed_url'],
                 };
@@ -178,6 +236,7 @@
 
                 var tickerEl = document.getElementById('ticker');
                 var trackEl = document.getElementById('track');
+                var labelEl = document.getElementById('news-label');
 
                 var feedUrl = null;
                 var maxItems = 10;
@@ -200,7 +259,7 @@
                 var plugin = SignagePlugin.create({
                     plugin: {
                         name: 'news-ticker',
-                        version: '1.0.0',
+                        version: '1.1.0',
                     },
                     capabilities: {
                         requires_play_signal: true,
@@ -238,6 +297,13 @@
                             config.show_images !== undefined
                                 ? config.show_images
                                 : true;
+
+                        applyLabel(
+                            config.label_text !== undefined
+                                ? config.label_text
+                                : 'Breaking News',
+                            config.label_color || '#eb0d41',
+                        );
 
                         // Reset any previous state before (re)configuring
                         cleanup();
@@ -629,6 +695,10 @@
                     offset = 0;
                     seqWidth = 0;
 
+                    // Start content clear of the fixed label so the first
+                    // headline is fully visible before scrolling begins
+                    trackEl.style.paddingLeft = labelEl.offsetWidth + 'px';
+
                     if (currentItems.length === 0) {
                         return;
                     }
@@ -777,6 +847,25 @@
                 // ---------------------------------------------------------------
                 // Helpers
                 // ---------------------------------------------------------------
+
+                /**
+                 * Apply the fixed left-hand label's text and colour. An empty
+                 * text hides the label entirely.
+                 */
+                function applyLabel(text, color) {
+                    var textEl = document.getElementById('label-text');
+                    var arrowEl = document.getElementById('label-arrow');
+
+                    if (!text) {
+                        labelEl.style.display = 'none';
+                        return;
+                    }
+
+                    labelEl.style.display = 'flex';
+                    textEl.textContent = text;
+                    textEl.style.background = color;
+                    arrowEl.style.borderLeftColor = color;
+                }
 
                 /**
                  * Resolve the feed URL from config or host-provided content.
