@@ -56,6 +56,7 @@
                 width: auto;
                 max-width: 300vh;
                 object-fit: cover;
+                border-radius: 4vh;
                 margin-right: 18vh;
             }
             .ticker-item .title {
@@ -79,8 +80,8 @@
                 width: 180vh;
             }
             /* Fixed label pinned to the left edge; the ticker scrolls
-               underneath it and items disappear at the arrow tip. The
-               opaque black background hides passing content. */
+               underneath it. The container is transparent so passing
+               content stays visible around the arrow's sloped edges. */
             #news-label {
                 position: absolute;
                 top: 0;
@@ -89,7 +90,6 @@
                 z-index: 5;
                 display: flex;
                 align-items: center;
-                background: #000;
             }
             #news-label .label-text {
                 display: flex;
