@@ -533,7 +533,10 @@ content.
 | `show_santa` | boolean | `true` | Display santa flying across the screen |
 
 The first plow run happens one full interval after `play` so the drift has
-time to build. In-progress runs and fly-bys are never interrupted.
+time to build. In-progress runs and fly-bys are never interrupted, and the
+plow and santa are never on screen at the same time: if one is due while the
+other is crossing, it is queued and starts as soon as the current crossing
+completes.
 
 **Error codes:** `MISSING_ELEMENT`, `CANVAS_UNAVAILABLE`
 

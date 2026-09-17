@@ -1483,6 +1483,11 @@
                 var plowScale = 1;
                 var santaScale = 1;
 
+                // Exclusive run state - the plow and santa never share the
+                // screen; whichever is requested second waits its turn
+                var activeRunner = null; // 'plow' | 'santa' | null
+                var runnerQueue = [];
+
                 // Plow run state
                 var plowRunning = false;
                 var plowElapsed = 0;
@@ -1616,6 +1621,9 @@
 
                     if (!activeConfig.showPlow) {
                         cancelPlow();
+                    }
+                    if (!activeConfig.showSanta) {
+                        cancelSanta();
                     }
 
                     if (playing) {
@@ -1897,36 +1905,98 @@
                 }
 
                 // ---------------------------------------------------------------
+                // Exclusive run queue
+                // ---------------------------------------------------------------
+
+                /**
+                 * Ask for the plow or santa to appear. If the other (or the
+                 * same) runner is already on screen the request is queued and
+                 * starts as soon as the current crossing completes.
+                 *
+                 * @param {string} kind - 'plow' or 'santa'
+                 */
+                function requestRun(kind) {
+                    if (
+                        activeRunner === kind ||
+                        runnerQueue.indexOf(kind) !== -1
+                    ) {
+                        return; // Already on screen or waiting its turn
+                    }
+                    if (activeRunner !== null) {
+                        runnerQueue.push(kind);
+                        return;
+                    }
+                    if (beginRunner(kind)) {
+                        activeRunner = kind;
+                    }
+                }
+
+                /**
+                 * Start a runner immediately.
+                 *
+                 * @param {string} kind - 'plow' or 'santa'
+                 * @returns {boolean} Whether it actually started
+                 */
+                function beginRunner(kind) {
+                    return kind === 'plow' ? beginPlow() : beginSanta();
+                }
+
+                /**
+                 * Mark a runner as finished and start the next queued one. A
+                 * queued runner that can no longer start (e.g. disabled by a
+                 * config change, or the page is hidden) is dropped - its
+                 * interval timer will request it again.
+                 *
+                 * @param {string} kind - 'plow' or 'santa'
+                 */
+                function finishRunner(kind) {
+                    if (activeRunner === kind) {
+                        activeRunner = null;
+                    }
+                    while (activeRunner === null && runnerQueue.length > 0) {
+                        var next = runnerQueue.shift();
+                        if (beginRunner(next)) {
+                            activeRunner = next;
+                        }
+                    }
+                }
+
+                // ---------------------------------------------------------------
                 // Plow run
                 // ---------------------------------------------------------------
 
                 /**
-                 * Kick off a plow run if one is not already in progress.
+                 * Kick off a plow run.
+                 *
+                 * @returns {boolean} Whether the run started
                  */
-                function startPlow() {
+                function beginPlow() {
                     if (
                         !activeConfig.showPlow ||
                         plowRunning ||
                         !playing ||
                         document.hidden
                     ) {
-                        return;
+                        return false;
                     }
                     plowRunning = true;
                     plowElapsed = 0;
                     plowLoad = 0;
                     plowLastCol = -1;
                     plowEl.className = 'running';
+                    return true;
                 }
 
                 /**
-                 * Abort any in-progress plow run (config change / resize).
+                 * End or abort a plow run (crossing complete, config change
+                 * or resize) and hand the screen to the next queued runner.
                  */
                 function cancelPlow() {
                     plowRunning = false;
                     plowLoad = 0;
                     plowEl.className = '';
                     hopperSnowEl.style.transform = '';
+                    finishRunner('plow');
                 }
 
                 /**
@@ -2133,10 +2203,9 @@
                     if (!activeConfig.showPlow) {
                         return;
                     }
-                    plowTimer = setInterval(
-                        startPlow,
-                        activeConfig.plowInterval * 1000,
-                    );
+                    plowTimer = setInterval(function () {
+                        requestRun('plow');
+                    }, activeConfig.plowInterval * 1000);
                 }
 
                 /**
@@ -2153,25 +2222,30 @@
                         return;
                     }
                     if (immediate) {
-                        launchSanta();
+                        requestRun('santa');
                     }
-                    santaTimer = setInterval(
-                        launchSanta,
-                        activeConfig.santaInterval * 1000,
-                    );
+                    santaTimer = setInterval(function () {
+                        requestRun('santa');
+                    }, activeConfig.santaInterval * 1000);
                 }
 
                 /**
                  * Fly santa across the screen at a random height within the
                  * middle 50% of the viewport.
+                 *
+                 * @returns {boolean} Whether the fly-by started
                  */
-                function launchSanta() {
-                    if (!activeConfig.showSanta || document.hidden) {
-                        return;
+                function beginSanta() {
+                    if (
+                        !activeConfig.showSanta ||
+                        !playing ||
+                        document.hidden
+                    ) {
+                        return false;
                     }
                     // Skip if a fly-by is still in progress
                     if (santaFlight.className.indexOf('flying') !== -1) {
-                        return;
+                        return false;
                     }
 
                     var height = SANTA_NATIVE_H * santaScale;
@@ -2187,6 +2261,17 @@
                     santaFlight.style.animationDuration =
                         activeConfig.santaDuration + 's';
                     santaFlight.className = 'flying';
+                    return true;
+                }
+
+                /**
+                 * Abort a santa fly-by (hidden by a config change - the CSS
+                 * animation would end without an animationend event) and hand
+                 * the screen to the next queued runner.
+                 */
+                function cancelSanta() {
+                    santaFlight.className = '';
+                    finishRunner('santa');
                 }
 
                 santaFlight.addEventListener('animationend', function (event) {
@@ -2195,8 +2280,10 @@
                     if (event.animationName !== 'santa-fly') {
                         return;
                     }
-                    // Reset so the next launch restarts the animation
+                    // Reset so the next launch restarts the animation, and
+                    // let a queued plow run take the screen
                     santaFlight.className = '';
+                    finishRunner('santa');
                 });
 
                 // ---------------------------------------------------------------
