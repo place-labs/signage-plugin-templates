@@ -551,7 +551,9 @@ runner crosses the bottom of the screen - randomly chosen between a
 stripes or pink with white dots, picked 50/50). Only one runner is on screen
 at a time. The bunny is a 19-frame sprite sheet extracted from a supplied
 GIF - background keyed to alpha, baked shadow replaced with a CSS ground
-shadow, frames re-registered on the body - driven by a `steps()` animation
+shadow, frames re-registered on the body, then vector-traced to an SVG
+sheet so the edges stay crisp at any display size - driven by a `steps()`
+animation
 phase-locked with a gait layer that holds it still on the ground between
 jumps (the forward motion happens mid-leap), with soft drop-shadow shading
 so the flat white sprite stays visible over white content. The eggs are CSS
