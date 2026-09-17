@@ -549,13 +549,15 @@ A fullscreen, fully transparent overlay where, at a configurable interval, a
 runner crosses the bottom of the screen - randomly chosen between a
 **hopping bunny** and a **rolling easter egg** with two styles (pastel
 stripes or pink with white dots, picked 50/50). Only one runner is on screen
-at a time. All CSS art, adapted from community CodePen examples: the bunny
-keeps its bounce, rotation, foot-kick and ground shadow, softly shaded (fur
-gradient plus an ambient drop shadow) so it stays visible over white
-content, and its gait pauses on the ground between jumps - the forward
-motion happens mid-leap. The eggs spin at a rate matched to the crossing
-speed - with a bob that keeps the shell in contact with the ground - so
-they read as rolling rather than sliding.
+at a time. The bunny is a 19-frame sprite sheet extracted from a supplied
+GIF - background keyed to alpha, baked shadow replaced with a CSS ground
+shadow, frames re-registered on the body - driven by a `steps()` animation
+phase-locked with a gait layer that holds it still on the ground between
+jumps (the forward motion happens mid-leap), with soft drop-shadow shading
+so the flat white sprite stays visible over white content. The eggs are CSS
+art adapted from a community CodePen example and spin at a rate matched to
+the crossing speed - with a bob that keeps the shell in contact with the
+ground - so they read as rolling rather than sliding.
 
 The runners are scaled from the **larger** viewport dimension (vmax) so
 sizes stay proportional in both orientations. All animation is paused until
