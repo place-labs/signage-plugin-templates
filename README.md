@@ -373,9 +373,13 @@ headers (both CORS-safelisted) as the refresh interval, falling back to the
 RSS `<ttl>` element, then a 5 minute default (clamped to 60s-24h). Failed
 refreshes keep the current headlines on screen and retry after 60 seconds.
 
-The feed is fetched through the host's relative proxy route
-(`/api/engine/v2/proxy?url=` + the URL-encoded feed URL), so feeds without
-CORS headers work in production.
+The feed is fetched directly from the browser first (optimal: no proxy hop,
+and the browser's own User-Agent satisfies feed CDNs that block programmatic
+clients); if the direct request fails - no CORS headers on the feed, or the
+request is blocked - it falls back to the host's relative proxy route
+(`/api/engine/v2/proxy?url=` + the URL-encoded feed URL). Whichever
+transport succeeds is remembered per feed URL in `localStorage` and tried
+first on subsequent fetches, and forgotten again if it stops working.
 
 **Error codes:** `MISSING_FEED_URL`, `FEED_LOAD_FAILED`, `FEED_REFRESH_FAILED`
 

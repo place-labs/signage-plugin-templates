@@ -165,14 +165,18 @@
                 //                                  background colour of the
                 //                                  label and its arrow.
                 //
-                // The feed is fetched through the host's relative proxy route
-                // (PROXY_ROUTE) so feeds without CORS headers still work.
+                // The feed is fetched directly first (optimal: no proxy hop,
+                // and the browser's own User-Agent avoids CDN bot filters);
+                // if the direct request fails (no CORS headers on the feed,
+                // blocked, etc.) it falls back to the host's relative proxy
+                // route (PROXY_ROUTE). Whichever transport succeeds is
+                // remembered per feed URL (localStorage) and tried first from
+                // then on, and forgotten again if it stops working.
                 //
-                // NOTE: the feed must be readable from the browser (served with
-                // CORS headers, or proxied by the host). Refresh cadence is
-                // taken from the response Cache-Control max-age / Expires
-                // headers (both CORS-safelisted), falling back to the RSS
-                // <ttl> element, then a 5 minute default.
+                // NOTE: Refresh cadence is taken from the response
+                // Cache-Control max-age / Expires headers (both
+                // CORS-safelisted), falling back to the RSS <ttl> element,
+                // then a 5 minute default.
                 // ---------------------------------------------------------------
 
                 var CONFIG_SCHEMA = {
@@ -228,6 +232,9 @@
                 // response, sidestepping CORS restrictions on the feed itself.
                 var PROXY_ROUTE = '/api/engine/v2/proxy?url=';
 
+                var TRANSPORT_DIRECT = 'direct';
+                var TRANSPORT_PROXY = 'proxy';
+
                 var DEFAULT_REFRESH_SECONDS = 300;
                 var MIN_REFRESH_SECONDS = 60;
                 var MAX_REFRESH_SECONDS = 86400;
@@ -254,12 +261,14 @@
                 var shouldPlay = false;
                 var readySent = false;
                 var hasLoadedOnce = false;
+                // Last transport that successfully fetched the feed
+                var transport = null;
 
                 // Create the signage plugin
                 var plugin = SignagePlugin.create({
                     plugin: {
                         name: 'news-ticker',
-                        version: '1.1.0',
+                        version: '1.2.0',
                     },
                     capabilities: {
                         requires_play_signal: true,
@@ -282,6 +291,8 @@
                             showError('Missing RSS feed URL');
                             return;
                         }
+
+                        transport = recallTransport();
 
                         maxItems =
                             config.max_items !== undefined &&
@@ -323,30 +334,142 @@
                 // ---------------------------------------------------------------
 
                 function fetchFeed() {
+                    attemptFetch(transportOrder(), 0, []);
+                }
+
+                /**
+                 * Try each transport in order until one succeeds. The winner
+                 * is remembered for subsequent fetches; if every transport
+                 * fails the memory is cleared so the next attempt re-probes
+                 * from scratch.
+                 *
+                 * @param {Array<string>} order - Transports to attempt
+                 * @param {number} index - Current position in the order
+                 * @param {Array<string>} failures - Failure summaries so far
+                 */
+                function attemptFetch(order, index, failures) {
+                    var mode = order[index];
+
+                    requestFeed(
+                        mode,
+                        function (xhr) {
+                            rememberTransport(mode);
+                            handleFeedResponse(xhr);
+                        },
+                        function (message, details) {
+                            failures.push(mode + ': ' + message);
+
+                            if (index + 1 < order.length) {
+                                attemptFetch(order, index + 1, failures);
+                                return;
+                            }
+
+                            forgetTransport();
+                            details = details || {};
+                            details.attempts = failures;
+                            handleFetchFailure(
+                                'Feed request failed (' +
+                                    failures.join('; ') +
+                                    ').',
+                                details,
+                            );
+                        },
+                    );
+                }
+
+                /**
+                 * Fetch the feed via a single transport.
+                 *
+                 * @param {string} mode - TRANSPORT_DIRECT or TRANSPORT_PROXY
+                 * @param {function} onSuccess - Called with the completed XHR
+                 * @param {function} onFailure - Called with (message, details)
+                 */
+                function requestFeed(mode, onSuccess, onFailure) {
                     var xhr = new XMLHttpRequest();
-                    var requestUrl = PROXY_ROUTE + encodeURIComponent(feedUrl);
+                    var requestUrl =
+                        mode === TRANSPORT_DIRECT
+                            ? feedUrl
+                            : PROXY_ROUTE + encodeURIComponent(feedUrl);
 
                     xhr.open('GET', requestUrl, true);
 
                     xhr.onload = function () {
                         if (xhr.status < 200 || xhr.status >= 300) {
-                            handleFetchFailure(
-                                'Feed request returned HTTP ' + xhr.status,
-                                { status: xhr.status },
-                            );
+                            onFailure('HTTP ' + xhr.status, {
+                                status: xhr.status,
+                            });
                             return;
                         }
-                        handleFeedResponse(xhr);
+                        onSuccess(xhr);
                     };
 
                     xhr.onerror = function () {
-                        handleFetchFailure(
-                            'Feed request failed (network error or CORS blocked).',
-                            {},
-                        );
+                        onFailure('network error or CORS blocked', {});
                     };
 
                     xhr.send();
+                }
+
+                /**
+                 * Transports to try, the last known working one first.
+                 * Defaults to direct-then-proxy: a direct fetch skips the
+                 * proxy hop and presents the browser's own User-Agent, which
+                 * some feed CDNs require.
+                 *
+                 * @returns {Array<string>}
+                 */
+                function transportOrder() {
+                    if (transport === TRANSPORT_PROXY) {
+                        return [TRANSPORT_PROXY, TRANSPORT_DIRECT];
+                    }
+                    return [TRANSPORT_DIRECT, TRANSPORT_PROXY];
+                }
+
+                function transportStorageKey() {
+                    return 'news-ticker:transport:' + feedUrl;
+                }
+
+                function rememberTransport(mode) {
+                    transport = mode;
+                    try {
+                        window.localStorage.setItem(
+                            transportStorageKey(),
+                            mode,
+                        );
+                    } catch (e) {
+                        /* Ignore - storage unavailable */
+                    }
+                }
+
+                function forgetTransport() {
+                    transport = null;
+                    try {
+                        window.localStorage.removeItem(transportStorageKey());
+                    } catch (e) {
+                        /* Ignore - storage unavailable */
+                    }
+                }
+
+                /**
+                 * Restore the remembered transport for the current feed URL.
+                 *
+                 * @returns {string|null}
+                 */
+                function recallTransport() {
+                    try {
+                        var stored = window.localStorage.getItem(
+                            transportStorageKey(),
+                        );
+                        if (
+                            stored === TRANSPORT_DIRECT ||
+                            stored === TRANSPORT_PROXY
+                        ) {
+                            return stored;
+                        }
+                    } catch (e) {
+                        /* Ignore - storage unavailable */
+                    }
+                    return null;
                 }
 
                 function handleFeedResponse(xhr) {
