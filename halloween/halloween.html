@@ -1,0 +1,1522 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Halloween Overlay Plugin</title>
+        <!--
+            NOTE: This plugin is a decorative overlay rendered in a fullscreen
+            iframe ABOVE other signage content, so the page background must be
+            transparent (a deliberate deviation from the usual `background: #000`
+            template rule). The host should embed it with:
+
+                <iframe src="halloween/halloween.html" allowtransparency="true"
+                        style="pointer-events: none; border: 0;"></iframe>
+
+            The three decorations (spider, jack-o'-lantern, witch) are pure CSS
+            art adapted from community CodePen examples supplied with the
+            request. Each is authored at a fixed pixel size and scaled with a
+            CSS variable computed from the larger viewport dimension (vmax), so
+            sizing tracks the screen dimensions.
+        -->
+        <style>
+            :root {
+                /* Element scales - computed by JS from viewport size */
+                --spider-scale: 1;
+                --pumpkin-scale: 1;
+                --witch-scale: 1;
+                --witch-off: -420px;
+
+                /* Jack-o'-lantern palette */
+                --pumpkin-orange-one: #a22a03;
+                --pumpkin-orange-two: #972904;
+                --pumpkin-orange-three: #892403;
+                --pumpkin-orange-four: #741d07;
+                --pumpkin-orange-five: #481203;
+                --pumpkin-inside: #fe6b01;
+                --stem-dark: #260f08;
+                --stem-medium: #3b180c;
+                --stem-light: #4d2a0b;
+                --stem-lightest: #633711;
+                --glow-core-level-one: #fee215;
+                --glow-core-level-two: #ffc106;
+                --glow-core-level-three: #ff9601;
+                --glow-pumpkin-orange: #c13f04;
+
+                /* Spider palette */
+                --spider-body: #110d04;
+                --spider-thread: rgba(200, 200, 200, 0.6);
+
+                /* Witch palette */
+                --witch-regular-scarlet: #632b44;
+                --witch-dark-scarlet: #3b1b2a;
+                --witch-purple: #705773;
+                --witch-dark-purple: #594159;
+                --witch-yellow: #fbad42;
+                --witch-dark-yellow: #fa9222;
+                --witch-green: #80c79b;
+                --witch-orange: #e63819;
+                --witch-light-gray: #ddd0bf;
+                --witch-regular-gray: #5b5b5b;
+                --witch-dark-gray: #444;
+                --witch-darker-gray: #383838;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                /* NOTE: transparent so the underlying signage page shows through */
+                background: transparent;
+            }
+
+            /* Everything holds still until the host sends "play" */
+            body:not(.playing) *,
+            body:not(.playing) *::before,
+            body:not(.playing) *::after {
+                animation-play-state: paused !important;
+            }
+
+            /* ---------------------------------------------------------------
+               Spider - hangs from the top right on a thread, wriggling legs
+               --------------------------------------------------------------- */
+
+            #spider-stage {
+                position: fixed;
+                top: 0;
+                right: 6vmax;
+                width: 50px;
+                height: 40px;
+                transform: scale(var(--spider-scale));
+                transform-origin: top center;
+                z-index: 20;
+            }
+            #spider-stage .spider {
+                position: absolute;
+                left: 0;
+                top: 0;
+                height: 40px;
+                width: 50px;
+                border-radius: 50%;
+                background: var(--spider-body);
+                margin-top: 160px;
+                /* margin-top (not transform) so the z-index:-1 legs can sit
+                   behind the body - a transform would trap them in a new
+                   stacking context */
+                animation: spider-bob 6s ease-in-out infinite;
+            }
+            #spider-stage .spider *,
+            #spider-stage .spider *::before,
+            #spider-stage .spider *::after {
+                position: absolute;
+            }
+            /* Silk thread up to (and past) the top of the screen */
+            #spider-stage .spider::before {
+                content: '';
+                position: absolute;
+                width: 2px;
+                background: var(--spider-thread);
+                left: 50%;
+                margin-left: -1px;
+                top: -6000px;
+                height: 6000px;
+            }
+            #spider-stage .eye {
+                top: 16px;
+                height: 14px;
+                width: 12px;
+                background: #ffffff;
+                border-radius: 50%;
+            }
+            #spider-stage .eye::after {
+                content: '';
+                top: 6px;
+                height: 5px;
+                width: 5px;
+                border-radius: 50%;
+                background: #000;
+            }
+            #spider-stage .eye.left {
+                left: 14px;
+            }
+            #spider-stage .eye.left::after {
+                right: 3px;
+            }
+            #spider-stage .eye.right {
+                right: 14px;
+            }
+            #spider-stage .eye.right::after {
+                left: 3px;
+            }
+            #spider-stage .leg {
+                top: 6px;
+                height: 12px;
+                width: 14px;
+                border-top: 2px solid var(--spider-body);
+                border-left: 1px solid transparent;
+                border-right: 1px solid transparent;
+                border-bottom: 1px solid transparent;
+                z-index: -1;
+            }
+            #spider-stage .leg.left {
+                left: -8px;
+                transform-origin: top right;
+                transform: rotate(36deg) skewX(-20deg);
+                border-left: 2px solid var(--spider-body);
+                border-radius: 60% 0 0 0;
+                animation: legs-wriggle-left 1s 0s infinite;
+            }
+            #spider-stage .leg.right {
+                right: -8px;
+                transform-origin: top left;
+                transform: rotate(-36deg) skewX(20deg);
+                border-right: 2px solid var(--spider-body);
+                border-radius: 0 60% 0 0;
+                animation: legs-wriggle-right 1s 0.2s infinite;
+            }
+            #spider-stage .leg:nth-of-type(2) {
+                top: 14px;
+                left: -11px;
+                animation-delay: 0.8s;
+            }
+            #spider-stage .leg:nth-of-type(3) {
+                top: 22px;
+                left: -12px;
+                animation-delay: 0.2s;
+            }
+            #spider-stage .leg:nth-of-type(4) {
+                top: 31px;
+                left: -10px;
+                animation-delay: 0.4s;
+            }
+            #spider-stage .leg:nth-of-type(6) {
+                top: 14px;
+                right: -11px;
+                animation-delay: 0.4s;
+            }
+            #spider-stage .leg:nth-of-type(7) {
+                top: 22px;
+                right: -12px;
+                animation-delay: 0.7s;
+            }
+            #spider-stage .leg:nth-of-type(8) {
+                top: 31px;
+                right: -10px;
+                animation-delay: 0.3s;
+            }
+            @keyframes spider-bob {
+                0%,
+                100% {
+                    margin-top: 160px;
+                }
+                50% {
+                    margin-top: 245px;
+                }
+            }
+            @keyframes legs-wriggle-left {
+                0%,
+                100% {
+                    transform: rotate(36deg) skewX(-20deg);
+                }
+                25%,
+                75% {
+                    transform: rotate(15deg) skewX(-20deg);
+                }
+                50% {
+                    transform: rotate(45deg) skewX(-20deg);
+                }
+            }
+            @keyframes legs-wriggle-right {
+                0%,
+                100% {
+                    transform: rotate(-36deg) skewX(20deg);
+                }
+                25%,
+                75% {
+                    transform: rotate(-15deg) skewX(20deg);
+                }
+                50% {
+                    transform: rotate(-45deg) skewX(20deg);
+                }
+            }
+
+            /* ---------------------------------------------------------------
+               Jack-o'-lantern - bottom left, glowing animated face
+               --------------------------------------------------------------- */
+
+            #pumpkin-stage {
+                position: fixed;
+                left: 1.5vmax;
+                /* The carved body's visible bottom sits 100px above the 500px
+                   stage bottom; pull the stage down so the pumpkin rests just
+                   above the screen edge at any scale */
+                bottom: calc(1vmax - var(--pumpkin-scale) * 100px);
+                width: 500px;
+                height: 500px;
+                transform: scale(var(--pumpkin-scale));
+                transform-origin: bottom left;
+                z-index: 10;
+            }
+            #pumpkin-stage .pumpkin-floor {
+                position: absolute;
+                left: 50%;
+                top: 360px;
+                width: 520px;
+                height: 110px;
+                transform: translateX(-50%);
+                background: radial-gradient(
+                    ellipse at center,
+                    rgba(255, 140, 0, 0.28) 0%,
+                    rgba(255, 100, 0, 0.1) 55%,
+                    transparent 75%
+                );
+                filter: blur(12px);
+                animation: jack-floor-glow 7s ease-in-out infinite;
+            }
+            #pumpkin-stage .pumpkin {
+                position: relative;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 500px;
+                width: 500px;
+            }
+            #pumpkin-stage .pumpkin-p {
+                position: absolute;
+                height: 300px;
+                border-radius: 48% / 50%;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+            }
+            #pumpkin-stage .p-1 {
+                background: var(--pumpkin-orange-one);
+                width: 140px;
+                z-index: 10;
+                filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.3));
+                overflow: hidden;
+            }
+            #pumpkin-stage .p-2 {
+                background: var(--pumpkin-orange-two);
+                width: 160px;
+                margin-left: 45px;
+                margin-top: -2px;
+                z-index: 9;
+                box-shadow: -90px 0px var(--pumpkin-orange-two);
+                filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.3));
+            }
+            #pumpkin-stage .p-3 {
+                background: var(--pumpkin-orange-three);
+                width: 200px;
+                margin-left: 65px;
+                margin-top: -5px;
+                z-index: 8;
+                box-shadow: -130px 0px var(--pumpkin-orange-three);
+                filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.2));
+            }
+            #pumpkin-stage .p-4 {
+                background: var(--pumpkin-orange-four);
+                width: 220px;
+                margin-left: 85px;
+                margin-top: -10px;
+                z-index: 7;
+                box-shadow: -170px 0px var(--pumpkin-orange-four);
+            }
+            #pumpkin-stage .p-5 {
+                background: var(--pumpkin-orange-five);
+                width: 160px;
+                margin-left: 45px;
+                margin-top: -20px;
+                z-index: 5;
+                box-shadow: -90px 0px var(--pumpkin-orange-five);
+            }
+            #pumpkin-stage .stem-container {
+                position: absolute;
+                width: 100px;
+                height: 100px;
+                background: transparent;
+                z-index: 6;
+                top: 10px;
+                margin-left: 20px;
+            }
+            #pumpkin-stage .stem {
+                width: 100px;
+                height: 100px;
+                background: radial-gradient(
+                    ellipse 50px 130px at calc(50% + 10px) 50%,
+                    var(--stem-light) 0,
+                    var(--stem-light) 17px,
+                    var(--stem-medium) 17px,
+                    var(--stem-medium) 35px,
+                    var(--stem-dark) 35px,
+                    var(--stem-dark) 100px
+                );
+                clip-path: polygon(
+                    1% 94%,
+                    14% 76%,
+                    21% 55%,
+                    27% 28%,
+                    35% 11%,
+                    42% 1%,
+                    61% 10%,
+                    56% 24%,
+                    52% 40%,
+                    52% 53%,
+                    57% 66%,
+                    65% 75%,
+                    74% 82%,
+                    84% 90%,
+                    92% 92%,
+                    98% 95%
+                );
+                overflow: hidden;
+            }
+            #pumpkin-stage .stem-tip {
+                width: 25px;
+                height: 25px;
+                background: var(--stem-lightest);
+                border-radius: 50%;
+                position: absolute;
+                top: -7px;
+                left: 39px;
+            }
+            #pumpkin-stage .eye {
+                position: absolute;
+                top: 180px;
+                z-index: 17;
+                width: 90px;
+                height: 50px;
+                border-radius: 0 0 60px 60px;
+                border-style: solid;
+                border-color: var(--pumpkin-inside);
+                animation: jack-glow 7s ease-in-out infinite;
+            }
+            #pumpkin-stage .eye-left {
+                margin-left: -180px;
+                rotate: 35deg;
+                border-width: 0 0 5px 8px;
+                background: linear-gradient(
+                    270deg,
+                    var(--glow-core-level-one) 0%,
+                    var(--glow-core-level-two) 80%,
+                    var(--glow-core-level-three) 100%
+                );
+                filter: drop-shadow(0 0 15px var(--glow-pumpkin-orange));
+            }
+            #pumpkin-stage .eye-right {
+                margin-left: 180px;
+                rotate: -35deg;
+                border-width: 0 8px 5px 0;
+                background: linear-gradient(
+                    90deg,
+                    var(--glow-core-level-one) 0%,
+                    var(--glow-core-level-two) 80%,
+                    var(--glow-core-level-three) 100%
+                );
+                filter: drop-shadow(0 0 15px var(--glow-pumpkin-orange));
+                animation-delay: 0.35s;
+            }
+            #pumpkin-stage .nose-container {
+                position: absolute;
+                width: 50px;
+                height: 50px;
+                background: transparent;
+                z-index: 13;
+            }
+            #pumpkin-stage .nose {
+                width: 50px;
+                height: 50px;
+                clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+                background: linear-gradient(
+                    180deg,
+                    var(--glow-core-level-one) 0%,
+                    var(--glow-core-level-two) 80%,
+                    var(--glow-core-level-three) 100%
+                );
+                animation: jack-glow 7s ease-in-out 0.7s infinite;
+            }
+            #pumpkin-stage .mouth-container {
+                position: absolute;
+                top: 240px;
+            }
+            #pumpkin-stage .mouth {
+                position: absolute;
+                left: -140px;
+                width: 250px;
+                height: 125px;
+                background: radial-gradient(
+                    circle,
+                    var(--glow-core-level-one) 0%,
+                    var(--glow-core-level-two) 80%,
+                    var(--glow-core-level-three) 100%
+                );
+                border-radius: 0 0 135px 135px;
+                border-width: 0 15px 5px 15px;
+                border-style: solid;
+                border-color: var(--pumpkin-inside);
+                z-index: 11;
+                /* No drop-shadow here: the glow would leak above the mouth's
+                   masked top edge and show as a seam across the face */
+                animation: jack-glow-flat 7s ease-in-out 1.05s infinite;
+            }
+            #pumpkin-stage .mask-p-1 {
+                position: absolute;
+                left: -140px;
+                /* Overlaps the mouth's top edge by 2px so subpixel scaling
+                   cannot let the bright interior bleed through as a seam */
+                top: -2px;
+                width: 280px;
+                height: 67px;
+                z-index: 12;
+                background: radial-gradient(
+                    ellipse 100px 200px at 50% calc(50% - 40px),
+                    var(--pumpkin-orange-one) 0,
+                    var(--pumpkin-orange-one) 70px,
+                    var(--pumpkin-orange-two) 70px,
+                    var(--pumpkin-orange-two) 125px,
+                    var(--pumpkin-orange-three) 125px,
+                    var(--pumpkin-orange-three) 140px
+                );
+                border-radius: 0 0 280px 280px / 0 0 110px 110px;
+            }
+            #pumpkin-stage .tooth-top {
+                position: absolute;
+                z-index: 15;
+                width: 30px;
+                height: 30px;
+                background: linear-gradient(
+                    78deg,
+                    var(--pumpkin-orange-two) 0% 65%,
+                    var(--pumpkin-orange-one) 50% 100%
+                );
+                clip-path: polygon(65% 100%, 0 0, 100% 0);
+                top: 55px;
+                left: -80px;
+                -webkit-box-reflect: right 100px;
+            }
+            #pumpkin-stage .tooth-bottom {
+                position: absolute;
+                z-index: 15;
+                width: 30px;
+                height: 30px;
+                background: linear-gradient(
+                    65deg,
+                    var(--pumpkin-orange-two) 0% 27%,
+                    var(--pumpkin-orange-one) 27% 100%
+                );
+                clip-path: polygon(39% 0, 0 100%, 100% 100%);
+                top: 100px;
+                left: -55px;
+                -webkit-box-reflect: right 50px;
+            }
+            /* The glow cycle: hue-rotate shifts the yellow/orange gradients
+               through greens and reds while the drop-shadow breathes */
+            @keyframes jack-glow {
+                0%,
+                100% {
+                    filter: drop-shadow(0 0 15px var(--glow-pumpkin-orange))
+                        hue-rotate(0deg) brightness(1);
+                }
+                30% {
+                    filter: drop-shadow(0 0 24px #ffd12e) hue-rotate(60deg)
+                        brightness(1.2);
+                }
+                55% {
+                    filter: drop-shadow(0 0 10px #ff5e00) hue-rotate(-50deg)
+                        brightness(0.92);
+                }
+                80% {
+                    filter: drop-shadow(0 0 20px #e6ff2e) hue-rotate(25deg)
+                        brightness(1.1);
+                }
+            }
+            @keyframes jack-glow-flat {
+                0%,
+                100% {
+                    filter: hue-rotate(0deg) brightness(1);
+                }
+                30% {
+                    filter: hue-rotate(60deg) brightness(1.2);
+                }
+                55% {
+                    filter: hue-rotate(-50deg) brightness(0.92);
+                }
+                80% {
+                    filter: hue-rotate(25deg) brightness(1.1);
+                }
+            }
+            @keyframes jack-floor-glow {
+                0%,
+                100% {
+                    opacity: 0.7;
+                }
+                50% {
+                    opacity: 1;
+                }
+            }
+
+            /* ---------------------------------------------------------------
+               Witch - flies across the screen at a random height
+               --------------------------------------------------------------- */
+
+            #witch-flight {
+                position: fixed;
+                left: 0;
+                top: 40%;
+                z-index: 30;
+                visibility: hidden;
+            }
+            #witch-flight.flying {
+                visibility: visible;
+                animation-name: witch-fly;
+                animation-timing-function: linear;
+                animation-fill-mode: both;
+                animation-duration: 8s;
+            }
+            @keyframes witch-fly {
+                from {
+                    transform: translateX(var(--witch-off));
+                }
+                to {
+                    transform: translateX(100vw);
+                }
+            }
+            .witch-base {
+                position: relative;
+                width: 348px;
+                height: 348px;
+                transform: scale(var(--witch-scale));
+                transform-origin: top left;
+            }
+            .witch-base div {
+                display: block;
+                position: absolute;
+                left: 0;
+                top: 0;
+            }
+            .witch-base .overflow {
+                overflow: hidden;
+            }
+            .witch-base .has-horz-shadow {
+                background-color: #000;
+                opacity: 0.12;
+                width: 50%;
+                height: 100%;
+                left: 50%;
+            }
+            .witch-base .has-vert-shadow {
+                background-color: #000;
+                opacity: 0.12;
+                width: 100%;
+                height: 50%;
+            }
+            .witch-base .witch {
+                animation: witch-bob 4s ease-in-out infinite;
+            }
+            @keyframes witch-bob {
+                26%,
+                28% {
+                    top: 34px;
+                }
+                54%,
+                56% {
+                    top: -30px;
+                }
+                84%,
+                86% {
+                    top: 10px;
+                }
+            }
+            .witch-base .motion {
+                background-color: var(--witch-dark-purple);
+                opacity: 0;
+                border-radius: 3px;
+                width: 60px;
+                height: 6px;
+            }
+            .witch-base .motion1 {
+                left: 36px;
+                top: 140px;
+                animation: witch-motion1 4s ease-in-out infinite;
+            }
+            .witch-base .motion2 {
+                left: 20px;
+                top: 168px;
+                animation: witch-motion2 4s ease-in-out infinite;
+            }
+            .witch-base .motion3 {
+                left: 14px;
+                top: 196px;
+                animation: witch-motion3 4s ease-in-out infinite;
+            }
+            @keyframes witch-motion1 {
+                24% {
+                    opacity: 0.5;
+                }
+                32% {
+                    margin-left: -40px;
+                    opacity: 0;
+                }
+            }
+            @keyframes witch-motion2 {
+                30% {
+                    opacity: 0.5;
+                }
+                38% {
+                    margin-left: -40px;
+                    opacity: 0;
+                }
+            }
+            @keyframes witch-motion3 {
+                36% {
+                    opacity: 0.5;
+                }
+                44% {
+                    margin-left: -40px;
+                    opacity: 0;
+                }
+            }
+            .witch-base .eye {
+                background-color: var(--witch-green);
+                border-radius: 50%;
+                width: 18px;
+                height: 24px;
+                top: -13px;
+                box-shadow: inset 6px 12px 0 rgba(0, 0, 0, 0.12);
+            }
+            .witch-base .eye .eyeball {
+                background-color: var(--witch-darker-gray);
+                border-radius: 50%;
+                width: 5px;
+                height: 5px;
+                left: 7px;
+                top: 15px;
+            }
+            .witch-base .eye .eyeball::after {
+                content: '';
+                display: block;
+                position: absolute;
+                background-color: #fff;
+                border-radius: 50%;
+                width: 2px;
+                height: 2px;
+                left: 3px;
+                top: 3px;
+            }
+            .witch-base .foot {
+                width: 62px;
+                height: 51px;
+            }
+            .witch-base .foot .st {
+                background-color: var(--witch-regular-scarlet);
+                width: 42px;
+                height: 51px;
+                box-shadow: inset -11px 8px 0 rgba(0, 0, 0, 0.12);
+            }
+            .witch-base .foot .nd {
+                background-color: var(--witch-regular-scarlet);
+                border-radius: 50%;
+                width: 34px;
+                height: 30px;
+                left: 28px;
+                top: 36px;
+                box-shadow: inset -11px 8px 0 rgba(0, 0, 0, 0.12);
+            }
+            .witch-base .foot::after {
+                content: '';
+                display: block;
+                position: absolute;
+                background-color: var(--witch-dark-scarlet);
+                border-radius: 50%;
+                width: 8px;
+                height: 8px;
+                left: 24px;
+                top: 12px;
+            }
+            .witch-base .hand {
+                width: 24px;
+                height: 96px;
+            }
+            .witch-base .hand .st {
+                background-color: var(--witch-purple);
+                width: 18px;
+                height: 84px;
+                left: 3px;
+            }
+            .witch-base .hand .nd {
+                background-color: var(--witch-light-gray);
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                top: 72px;
+                overflow: hidden;
+            }
+            .witch-base .hand .nd::after {
+                content: '';
+                display: block;
+                position: absolute;
+                background-color: var(--witch-dark-gray);
+                border-top-left-radius: 2px;
+                border-top-right-radius: 2px;
+                width: 2px;
+                height: 10px;
+                left: 5px;
+                top: 14px;
+                box-shadow:
+                    6px 0 0 var(--witch-dark-gray),
+                    12px 0 0 var(--witch-dark-gray);
+            }
+            .witch-base .left-foot-holder {
+                width: 62px;
+                height: 51px;
+                left: 176px;
+                top: 241px;
+                overflow: hidden;
+            }
+            .witch-base .broom {
+                width: 345px;
+                height: 72px;
+                left: 2px;
+                top: 237px;
+            }
+            .witch-base .broom .st {
+                background-color: var(--witch-dark-yellow);
+                border-top-right-radius: 36px;
+                border-bottom-right-radius: 36px;
+                width: 100px;
+                height: 72px;
+            }
+            .witch-base .broom .st::after {
+                content: '';
+                display: block;
+                position: absolute;
+                background-color: var(--witch-yellow);
+                border-top-right-radius: 1px;
+                border-bottom-right-radius: 1px;
+                width: 18px;
+                height: 2px;
+                top: 17px;
+                box-shadow:
+                    0 18px 0 var(--witch-yellow),
+                    0 38px 0 var(--witch-yellow);
+            }
+            .witch-base .broom .nd {
+                background-color: var(--witch-orange);
+                border-top-right-radius: 5px;
+                border-bottom-right-radius: 5px;
+                width: 248px;
+                height: 10px;
+                left: 97px;
+                top: 31px;
+            }
+            .witch-base .body {
+                width: 204px;
+                height: 148px;
+                left: 95px;
+                top: 120px;
+            }
+            .witch-base .body .big {
+                background-color: var(--witch-dark-purple);
+                border-top-left-radius: 50%;
+                border-top-right-radius: 50%;
+                width: 148px;
+                height: 148px;
+                box-shadow: inset 12px 12px 0 12px rgba(0, 0, 0, 0.12);
+            }
+            .witch-base .body .small {
+                background-color: var(--witch-dark-purple);
+                border-top-left-radius: 50%;
+                border-top-right-radius: 50%;
+                width: 100px;
+                height: 100px;
+                left: 104px;
+                top: 48px;
+                box-shadow: inset -6px 6px 0 6px rgba(0, 0, 0, 0.12);
+            }
+            .witch-base .right-foot-holder {
+                width: 62px;
+                height: 51px;
+                left: 95px;
+                top: 246px;
+                overflow: hidden;
+            }
+            .witch-base .right-hand-holder {
+                width: 24px;
+                height: 96px;
+                left: 182px;
+                top: 189px;
+            }
+            .witch-base .left-hand-holder {
+                width: 24px;
+                height: 96px;
+                left: 248px;
+                top: 189px;
+            }
+            .witch-base .head {
+                width: 188px;
+                height: 177px;
+                left: 133px;
+                top: 41px;
+            }
+            .witch-base .head .hair {
+                background-color: var(--witch-yellow);
+                border-radius: 12px;
+                width: 132px;
+                height: 24px;
+                left: 28px;
+                top: 101px;
+            }
+            .witch-base .head .face {
+                background-color: var(--witch-light-gray);
+                border-bottom-left-radius: 50%;
+                border-bottom-right-radius: 50%;
+                width: 96px;
+                height: 66px;
+                left: 46px;
+                top: 111px;
+            }
+            .witch-base .face .right-eyebrow {
+                border-bottom: 10px solid var(--witch-regular-gray);
+                border-right: 10px solid transparent;
+                height: 0;
+                width: 26px;
+                top: 3px;
+            }
+            .witch-base .face .right-eyebrow::after {
+                content: '';
+                display: block;
+                position: absolute;
+                border-bottom: 8px solid var(--witch-light-gray);
+                border-right: 8px solid transparent;
+                height: 0;
+                width: 23px;
+            }
+            .witch-base .face .right-eye-holder {
+                width: 18px;
+                height: 12px;
+                left: 18px;
+                top: 13px;
+                overflow: hidden;
+            }
+            .witch-base .face .left-eyebrow {
+                border-bottom: 10px solid var(--witch-regular-gray);
+                border-left: 10px solid transparent;
+                height: 0;
+                width: 26px;
+                top: 3px;
+                left: 60px;
+            }
+            .witch-base .face .left-eyebrow::after {
+                content: '';
+                display: block;
+                position: absolute;
+                border-bottom: 8px solid var(--witch-light-gray);
+                border-left: 8px solid transparent;
+                height: 0;
+                margin-left: -5px;
+                width: 23px;
+            }
+            .witch-base .face .left-eye-holder {
+                width: 18px;
+                height: 12px;
+                left: 60px;
+                top: 13px;
+                overflow: hidden;
+            }
+            .witch-base .face .teeth-holder {
+                border-radius: 50%;
+                width: 68px;
+                height: 42px;
+                left: 14px;
+                top: 12px;
+                overflow: hidden;
+            }
+            .witch-base .teeth-holder .teeth {
+                background-color: var(--witch-yellow);
+                width: 68px;
+                height: 21px;
+                top: 21px;
+            }
+            .witch-base .teeth .dividers {
+                background-color: var(--witch-dark-gray);
+                width: 2px;
+                height: 42px;
+                left: 9px;
+                box-shadow:
+                    12px 0 0 var(--witch-dark-gray),
+                    24px 0 0 var(--witch-dark-gray),
+                    36px 0 0 var(--witch-dark-gray),
+                    48px 0 0 var(--witch-dark-gray);
+            }
+            .witch-base .teeth::after {
+                content: '';
+                display: block;
+                position: absolute;
+                background-color: var(--witch-light-gray);
+                border-radius: 50%;
+                width: 68px;
+                height: 16px;
+                margin-top: -8px;
+            }
+            .witch-base .hat .lower-side {
+                background-color: var(--witch-regular-scarlet);
+                border-radius: 5px;
+                width: 188px;
+                height: 10px;
+                top: 101px;
+            }
+            .witch-base .hat .upper-side {
+                background-color: var(--witch-regular-scarlet);
+                border-top-left-radius: 28px;
+                border-top-right-radius: 28px;
+                width: 120px;
+                height: 108px;
+                left: 34px;
+            }
+            .witch-base .hat .belt {
+                background-color: var(--witch-dark-scarlet);
+                width: 120px;
+                height: 24px;
+                top: 77px;
+            }
+            .witch-base .hat .belt::after {
+                content: '';
+                display: block;
+                position: absolute;
+                border-width: 11px 9px;
+                border-style: solid;
+                border-color: var(--witch-yellow);
+                width: 28px;
+                height: 16px;
+                left: 37px;
+                top: -7px;
+            }
+
+            /* ---------------------------------------------------------------
+               Error overlay
+               --------------------------------------------------------------- */
+
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 100;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Spider hanging top right -->
+        <div id="spider-stage">
+            <div class="spider">
+                <div class="eye left"></div>
+                <div class="eye right"></div>
+                <span class="leg left"></span>
+                <span class="leg left"></span>
+                <span class="leg left"></span>
+                <span class="leg left"></span>
+                <span class="leg right"></span>
+                <span class="leg right"></span>
+                <span class="leg right"></span>
+                <span class="leg right"></span>
+            </div>
+        </div>
+
+        <!-- Jack-o'-lantern bottom left -->
+        <div id="pumpkin-stage">
+            <div class="pumpkin-floor"></div>
+            <div class="pumpkin">
+                <div class="pumpkin-p p-1"></div>
+                <div class="pumpkin-p p-2"></div>
+                <div class="pumpkin-p p-3"></div>
+                <div class="pumpkin-p p-4"></div>
+                <div class="pumpkin-p p-5"></div>
+                <div class="stem-container">
+                    <div class="stem">
+                        <div class="stem-tip"></div>
+                    </div>
+                </div>
+                <div class="eye eye-left"></div>
+                <div class="eye eye-right"></div>
+                <div class="nose-container">
+                    <div class="nose"></div>
+                </div>
+                <div class="mouth-container">
+                    <div class="mouth"></div>
+                    <div class="mask-p-1"></div>
+                    <div class="tooth-top"></div>
+                    <div class="tooth-bottom"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Witch flying across the screen -->
+        <div id="witch-flight">
+            <div class="witch-base">
+                <div class="witch">
+                    <div class="motion motion1"></div>
+                    <div class="motion motion2"></div>
+                    <div class="motion motion3"></div>
+
+                    <div class="left-foot-holder">
+                        <div class="foot">
+                            <div class="st"></div>
+                            <div class="nd"></div>
+                        </div>
+                    </div>
+
+                    <div class="broom">
+                        <div class="st overflow">
+                            <div class="has-vert-shadow"></div>
+                        </div>
+                        <div class="nd overflow">
+                            <div class="has-vert-shadow"></div>
+                        </div>
+                    </div>
+
+                    <div class="body">
+                        <div class="big"></div>
+                        <div class="small"></div>
+                    </div>
+
+                    <div class="right-foot-holder">
+                        <div class="foot">
+                            <div class="st"></div>
+                            <div class="nd"></div>
+                        </div>
+                    </div>
+
+                    <div class="right-hand-holder">
+                        <div class="hand">
+                            <div class="st overflow">
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                            <div class="nd overflow">
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="left-hand-holder">
+                        <div class="hand">
+                            <div class="st overflow">
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                            <div class="nd overflow">
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="head">
+                        <div class="hair"></div>
+                        <div class="face overflow">
+                            <div class="right-eyebrow"></div>
+                            <div class="right-eye-holder">
+                                <div class="eye">
+                                    <div class="eyeball"></div>
+                                </div>
+                            </div>
+                            <div class="left-eyebrow"></div>
+                            <div class="left-eye-holder">
+                                <div class="eye">
+                                    <div class="eyeball"></div>
+                                </div>
+                            </div>
+                            <div class="teeth-holder">
+                                <div class="teeth">
+                                    <div class="dividers"></div>
+                                </div>
+                            </div>
+                            <div class="has-horz-shadow"></div>
+                        </div>
+                        <div class="hat">
+                            <div class="lower-side overflow">
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                            <div class="upper-side overflow">
+                                <div class="belt"></div>
+                                <div class="has-horz-shadow"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error-overlay"></div>
+
+        <!-- NOTE: plugin lives in halloween/, SDK is at the repo root -->
+        <script src="../plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.scale          (number, default 1) - overall size
+                //                          multiplier for all decorations
+                //   config.witch_interval (number, default 15) - seconds between
+                //                          witch fly-bys
+                //   config.witch_duration (number, default 8) - seconds the witch
+                //                          takes to cross the screen
+                //   config.show_spider    (boolean, default true)
+                //   config.show_pumpkin   (boolean, default true)
+                //   config.show_witch     (boolean, default true)
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        scale: {
+                            type: 'number',
+                            title: 'Scale',
+                            description:
+                                'Overall size multiplier for the decorations (0.25 - 3).',
+                            default: 1,
+                        },
+                        witch_interval: {
+                            type: 'number',
+                            title: 'Witch Interval (seconds)',
+                            description:
+                                'How often the witch flies across the screen (5 - 3600).',
+                            default: 15,
+                        },
+                        witch_duration: {
+                            type: 'number',
+                            title: 'Witch Flight Duration (seconds)',
+                            description:
+                                'How long the witch takes to cross the screen (2 - 60).',
+                            default: 8,
+                        },
+                        show_spider: {
+                            type: 'boolean',
+                            title: 'Show Spider',
+                            description:
+                                'Display the spider hanging in the top right corner.',
+                            default: true,
+                        },
+                        show_pumpkin: {
+                            type: 'boolean',
+                            title: 'Show Pumpkin',
+                            description:
+                                'Display the glowing jack-o-lantern in the bottom left corner.',
+                            default: true,
+                        },
+                        show_witch: {
+                            type: 'boolean',
+                            title: 'Show Witch',
+                            description:
+                                'Display the witch flying across the screen.',
+                            default: true,
+                        },
+                    },
+                };
+
+                // Native (unscaled) sizes of each CSS art piece, in pixels
+                var SPIDER_NATIVE = 50;
+                var PUMPKIN_NATIVE = 500;
+                var WITCH_NATIVE = 348;
+
+                // Target size of each element as a fraction of the larger
+                // viewport dimension (vmax)
+                var SPIDER_FRACTION = 0.055;
+                var PUMPKIN_FRACTION = 0.28;
+                var WITCH_FRACTION = 0.22;
+
+                var RESIZE_DEBOUNCE_MS = 250;
+
+                var activeConfig = {
+                    scale: 1,
+                    witchInterval: 15,
+                    witchDuration: 8,
+                    showSpider: true,
+                    showPumpkin: true,
+                    showWitch: true,
+                };
+
+                var playing = false;
+                var witchTimer = null;
+                var resizeTimer = null;
+
+                var spiderStage = document.getElementById('spider-stage');
+                var pumpkinStage = document.getElementById('pumpkin-stage');
+                var witchFlight = document.getElementById('witch-flight');
+
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'halloween-overlay',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        activeConfig.scale = clampNumber(
+                            config.scale,
+                            0.25,
+                            3,
+                            1,
+                        );
+                        activeConfig.witchInterval = clampNumber(
+                            config.witch_interval,
+                            5,
+                            3600,
+                            15,
+                        );
+                        activeConfig.witchDuration = clampNumber(
+                            config.witch_duration,
+                            2,
+                            60,
+                            8,
+                        );
+                        activeConfig.showSpider = readBoolean(
+                            config.show_spider,
+                            true,
+                        );
+                        activeConfig.showPumpkin = readBoolean(
+                            config.show_pumpkin,
+                            true,
+                        );
+                        activeConfig.showWitch = readBoolean(
+                            config.show_witch,
+                            true,
+                        );
+
+                        applyConfig();
+                        plugin.ready();
+                    },
+
+                    onPlay: function () {
+                        playing = true;
+                        // Unpause all CSS animations
+                        document.body.className = 'playing';
+                        scheduleWitch(true);
+                    },
+                });
+
+                if (!spiderStage || !pumpkinStage || !witchFlight) {
+                    plugin.error({
+                        code: 'MISSING_ELEMENT',
+                        message:
+                            'One or more stage elements are missing from the DOM.',
+                        fatal: true,
+                    });
+                    showError('Internal error: missing stage elements');
+                    return;
+                }
+
+                // ---------------------------------------------------------------
+                // Configuration / sizing
+                // ---------------------------------------------------------------
+
+                /**
+                 * Apply the active configuration: element visibility, scale
+                 * variables and the witch flight timer.
+                 */
+                function applyConfig() {
+                    spiderStage.style.display = activeConfig.showSpider
+                        ? ''
+                        : 'none';
+                    pumpkinStage.style.display = activeConfig.showPumpkin
+                        ? ''
+                        : 'none';
+                    witchFlight.style.display = activeConfig.showWitch
+                        ? ''
+                        : 'none';
+
+                    updateScales();
+
+                    if (playing) {
+                        scheduleWitch(false);
+                    }
+                }
+
+                /**
+                 * Recompute the per-element scale factors so each decoration's
+                 * size is a fixed fraction of the larger viewport dimension.
+                 */
+                function updateScales() {
+                    var vmax = Math.max(window.innerWidth, window.innerHeight);
+                    var root = document.documentElement.style;
+                    var spider =
+                        (vmax * SPIDER_FRACTION * activeConfig.scale) /
+                        SPIDER_NATIVE;
+                    var pumpkin =
+                        (vmax * PUMPKIN_FRACTION * activeConfig.scale) /
+                        PUMPKIN_NATIVE;
+                    var witch =
+                        (vmax * WITCH_FRACTION * activeConfig.scale) /
+                        WITCH_NATIVE;
+
+                    root.setProperty('--spider-scale', String(spider));
+                    root.setProperty('--pumpkin-scale', String(pumpkin));
+                    root.setProperty('--witch-scale', String(witch));
+                    // Fly-in start position: fully off the left screen edge
+                    root.setProperty(
+                        '--witch-off',
+                        '-' + Math.ceil(WITCH_NATIVE * witch + 40) + 'px',
+                    );
+                }
+
+                /**
+                 * Return the current witch scale factor.
+                 *
+                 * @returns {number}
+                 */
+                function witchScale() {
+                    var vmax = Math.max(window.innerWidth, window.innerHeight);
+                    return (
+                        (vmax * WITCH_FRACTION * activeConfig.scale) /
+                        WITCH_NATIVE
+                    );
+                }
+
+                // ---------------------------------------------------------------
+                // Witch flight scheduling
+                // ---------------------------------------------------------------
+
+                /**
+                 * (Re)start the witch fly-by timer.
+                 *
+                 * @param {boolean} immediate - Launch a fly-by right away
+                 */
+                function scheduleWitch(immediate) {
+                    if (witchTimer !== null) {
+                        clearInterval(witchTimer);
+                        witchTimer = null;
+                    }
+                    if (!activeConfig.showWitch) {
+                        return;
+                    }
+                    if (immediate) {
+                        launchWitch();
+                    }
+                    witchTimer = setInterval(
+                        launchWitch,
+                        activeConfig.witchInterval * 1000,
+                    );
+                }
+
+                /**
+                 * Fly the witch across the screen at a random height within
+                 * the middle 50% of the viewport.
+                 */
+                function launchWitch() {
+                    if (!activeConfig.showWitch || document.hidden) {
+                        return;
+                    }
+                    // Skip if a fly-by is still in progress
+                    if (witchFlight.className.indexOf('flying') !== -1) {
+                        return;
+                    }
+
+                    var height = WITCH_NATIVE * witchScale();
+                    var viewHeight = window.innerHeight;
+                    var centre = viewHeight * (0.25 + Math.random() * 0.5);
+                    var top = Math.round(centre - height / 2);
+                    top = Math.max(
+                        0,
+                        Math.min(viewHeight - Math.ceil(height), top),
+                    );
+
+                    witchFlight.style.top = top + 'px';
+                    witchFlight.style.animationDuration =
+                        activeConfig.witchDuration + 's';
+                    witchFlight.className = 'flying';
+                }
+
+                witchFlight.addEventListener('animationend', function (event) {
+                    // Descendant animation events bubble here too - only the
+                    // flight itself should reset the element
+                    if (event.animationName !== 'witch-fly') {
+                        return;
+                    }
+                    // Reset so the next launch restarts the animation
+                    witchFlight.className = '';
+                });
+
+                // ---------------------------------------------------------------
+                // Resize handling
+                // ---------------------------------------------------------------
+
+                window.addEventListener('resize', function () {
+                    if (resizeTimer !== null) {
+                        clearTimeout(resizeTimer);
+                    }
+                    resizeTimer = setTimeout(function () {
+                        resizeTimer = null;
+                        updateScales();
+                    }, RESIZE_DEBOUNCE_MS);
+                });
+
+                // Size the decorations immediately so the overlay looks right
+                // even before the first config arrives
+                updateScales();
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Clamp a numeric config value, falling back when missing or
+                 * not a finite number.
+                 *
+                 * @param {*} value - Raw config value
+                 * @param {number} min - Minimum allowed value
+                 * @param {number} max - Maximum allowed value
+                 * @param {number} fallback - Default when invalid
+                 * @returns {number}
+                 */
+                function clampNumber(value, min, max, fallback) {
+                    if (typeof value !== 'number' || !isFinite(value)) {
+                        return fallback;
+                    }
+                    return Math.max(min, Math.min(max, value));
+                }
+
+                /**
+                 * Read an optional boolean config value.
+                 *
+                 * @param {*} value - Raw config value
+                 * @param {boolean} fallback - Default when undefined
+                 * @returns {boolean}
+                 */
+                function readBoolean(value, fallback) {
+                    return value !== undefined ? !!value : fallback;
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>

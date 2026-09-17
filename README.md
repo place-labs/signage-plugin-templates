@@ -26,6 +26,7 @@ youtube.html       YouTube player plugin template
 instagram.html     Instagram embed plugin template
 news-ticker.html   Scrolling RSS news ticker plugin template
 rain/rain.html     Transparent rain-on-glass overlay plugin template
+halloween/halloween.html   Transparent Halloween decorations overlay plugin template
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -435,6 +436,48 @@ capture on the next user interaction.
 **Error codes:** `WEBGL_UNAVAILABLE`, `TEXTURE_LOAD_FAILED`,
 `PARENT_CAPTURE_UNAVAILABLE`, `PARENT_CAPTURE_TAINTED`,
 `DISPLAY_CAPTURE_FAILED`
+
+---
+
+### Halloween Overlay (`halloween/halloween.html`)
+
+A fullscreen, fully transparent overlay of animated CSS-art Halloween
+decorations, designed to sit in an iframe above other signage content:
+
+- A **spider** dangling from a silk thread in the top right corner, bobbing
+  up and down with wriggling legs.
+- A **jack-o'-lantern** in the bottom left corner whose carved eyes, nose and
+  mouth glow and cycle through colours (a hue-rotate/brightness animation).
+- A **witch** on a broomstick that flies across the screen at a configurable
+  interval (default every 15 seconds), each time at a random height within
+  the middle 50% of the screen.
+
+Each decoration is authored at a fixed pixel size and scaled from the
+**larger** viewport dimension (vmax), so element sizes stay proportional to
+the screen in both landscape and portrait orientations. All animation is
+paused until the host sends `play`.
+
+The host should embed the iframe with `allowtransparency` and
+`pointer-events: none` so clicks pass through to the page underneath.
+
+**Capabilities:** Requires play signal, cannot finish (runs forever), dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `scale` | number | `1` | Overall size multiplier for all decorations (0.25 - 3) |
+| `witch_interval` | number | `15` | Seconds between witch fly-bys (5 - 3600) |
+| `witch_duration` | number | `8` | Seconds the witch takes to cross the screen (2 - 60) |
+| `show_spider` | boolean | `true` | Display the spider in the top right corner |
+| `show_pumpkin` | boolean | `true` | Display the jack-o'-lantern in the bottom left corner |
+| `show_witch` | boolean | `true` | Display the flying witch |
+
+If `witch_duration` is longer than `witch_interval`, in-progress fly-bys are
+never interrupted; the next launch simply waits for the following interval.
+
+**Error codes:** `MISSING_ELEMENT`
 
 ---
 

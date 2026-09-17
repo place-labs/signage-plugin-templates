@@ -49,6 +49,7 @@ youtube.html       # YouTube player plugin template
 instagram.html     # Instagram embed plugin template
 news-ticker.html   # Scrolling RSS news ticker plugin template
 rain/rain.html     # Transparent rain-on-glass WebGL overlay plugin template
+halloween/halloween.html   # Transparent Halloween decorations overlay plugin template
 validator.html     # Dev tool - protocol compliance validator (not a plugin)
 .prettierrc        # Prettier config: { singleQuote: true, tabWidth: 4 }
 CLAUDE.md          # Duplicate of AGENTS.md (kept in sync)
