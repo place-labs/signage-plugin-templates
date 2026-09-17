@@ -28,6 +28,7 @@ news-ticker.html   Scrolling RSS news ticker plugin template
 rain/rain.html     Transparent rain-on-glass overlay plugin template
 halloween/halloween.html   Transparent Halloween decorations overlay plugin template
 christmas/christmas.html   Transparent Christmas snow/plow/santa overlay plugin template
+easter/easter.html Transparent Easter bunny/egg overlay plugin template
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -539,6 +540,41 @@ other is crossing, it is queued and starts as soon as the current crossing
 completes.
 
 **Error codes:** `MISSING_ELEMENT`, `CANVAS_UNAVAILABLE`
+
+---
+
+### Easter Overlay (`easter/easter.html`)
+
+A fullscreen, fully transparent overlay where, at a configurable interval, a
+runner crosses the bottom of the screen - randomly chosen between a
+**hopping bunny** and a **rolling easter egg** with two styles (pastel
+stripes or pink with white dots, picked 50/50). Only one runner is on screen
+at a time. All CSS art, adapted from community CodePen examples: the bunny
+keeps its bounce, rotation, foot-kick and ground shadow while the crossing
+supplies the forward motion, and the eggs spin at a rate matched to the
+crossing speed - with a bob that keeps the shell in contact with the ground -
+so they read as rolling rather than sliding.
+
+The runners are scaled from the **larger** viewport dimension (vmax) so
+sizes stay proportional in both orientations. All animation is paused until
+the host sends `play`; the first crossing happens immediately on `play`.
+
+The host should embed the iframe with `allowtransparency` and
+`pointer-events: none` so clicks pass through to the page underneath.
+
+**Capabilities:** Requires play signal, cannot finish (runs forever), dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `scale` | number | `1` | Overall size multiplier for the bunny and eggs (0.25 - 3) |
+| `run_interval` | number | `20` | Seconds between crossings (5 - 3600) |
+| `run_duration` | number | `6` | Seconds a crossing takes (2 - 60) |
+| `bunny_chance` | number | `0.5` | Probability a crossing is the bunny rather than an egg, `0` - `1` |
+
+**Error codes:** `MISSING_ELEMENT`
 
 ---
 

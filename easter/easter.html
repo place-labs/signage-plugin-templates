@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Easter Overlay Plugin</title>
+        <!--
+            NOTE: This plugin is a decorative overlay rendered in a fullscreen
+            iframe ABOVE other signage content, so the page background must be
+            transparent (a deliberate deviation from the usual `background: #000`
+            template rule). The host should embed it with:
+
+                <iframe src="easter/easter.html" allowtransparency="true"
+                        style="pointer-events: none; border: 0;"></iframe>
+
+            Every run interval one runner crosses the bottom of the screen,
+            randomly chosen between a hopping bunny and a rolling easter egg
+            (two egg styles). The CSS art pieces are adapted from community
+            CodePen examples supplied with the request: the bunny's hop cycle
+            keeps its vertical bounce, rotation, foot kick and ground shadow
+            but drops the original horizontal shuffle (the crossing supplies
+            the forward motion), and the eggs roll - spinning at a rate
+            matched to the crossing speed, with a bob that keeps the egg's
+            shell in contact with the bottom edge - instead of the original
+            in-place wobble.
+
+            Art is authored at fixed sizes and scaled from the larger
+            viewport dimension (vmax) so sizing tracks the screen dimensions.
+        -->
+        <style>
+            :root {
+                /* Sizing - computed by JS from viewport size */
+                --bunny-font: 16px;
+                --egg-scale: 1;
+                --easter-off: -320px;
+
+                /* Bunny palette */
+                --bunny-white: #ffffff;
+                --bunny-ear-edge: #f7f5f4;
+                --bunny-eye: #3f3334;
+                --bunny-shadow: rgba(0, 0, 0, 0.2);
+
+                /* Egg palette */
+                --egg-shell: #fbe9e7;
+                --egg-stripe-1: #ffbde8;
+                --egg-stripe-2: #bde8ff;
+                --egg-stripe-3: #e8ffbd;
+                --egg-stripe-4: #ffe8bd;
+                --egg-stripe-5: #e8bdff;
+                --egg-pink: #ec407a;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                /* NOTE: transparent so the underlying signage page shows through */
+                background: transparent;
+            }
+
+            /* Everything holds still until the host sends "play" */
+            body:not(.playing) *,
+            body:not(.playing) *::before,
+            body:not(.playing) *::after {
+                animation-play-state: paused !important;
+            }
+
+            /* ---------------------------------------------------------------
+               Runner - crosses the bottom of the screen
+               --------------------------------------------------------------- */
+
+            #easter-run {
+                position: fixed;
+                left: 0;
+                bottom: 0;
+                z-index: 10;
+                visibility: hidden;
+                will-change: transform;
+            }
+            #easter-run.running {
+                visibility: visible;
+                animation-name: easter-run-move;
+                animation-timing-function: linear;
+                animation-fill-mode: both;
+                animation-duration: 6s;
+            }
+            @keyframes easter-run-move {
+                from {
+                    transform: translateX(var(--easter-off));
+                }
+                to {
+                    transform: translateX(100vw);
+                }
+            }
+
+            /* Only the randomly selected runner is shown for a crossing */
+            .runner {
+                display: none;
+                position: absolute;
+                left: 0;
+                bottom: 0;
+            }
+            #easter-run.bunny .runner-bunny,
+            #easter-run.egg-a .runner-egg-a,
+            #easter-run.egg-b .runner-egg-b {
+                display: block;
+            }
+
+            /* ---------------------------------------------------------------
+               Bunny - hops along the ground
+               --------------------------------------------------------------- */
+
+            /* The bunny rests exactly on the viewport bottom; its ground
+               shadow tucks just below the edge at rest and shows at ground
+               level while the bunny is airborne */
+            .runner-bunny {
+                font-size: var(--bunny-font);
+                width: 6em;
+                height: 3em;
+            }
+            .rabbit {
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                width: 5em;
+                height: 3em;
+                background: var(--bunny-white);
+                border-radius: 70% 90% 60% 50%;
+                box-shadow: -0.2em 1em 0 -0.75em var(--bunny-shadow);
+                transform: translate(0, 0);
+                animation: bunny-hop 1s infinite linear;
+                z-index: 1;
+            }
+            /* Tail, eye and feet */
+            .rabbit::before {
+                content: '';
+                position: absolute;
+                width: 1em;
+                height: 1em;
+                background: var(--bunny-white);
+                border-radius: 100%;
+                top: 0.5em;
+                left: -0.3em;
+                box-shadow:
+                    4em 0.4em 0 -0.35em var(--bunny-eye),
+                    0.5em 1em 0 var(--bunny-white),
+                    4em 1em 0 -0.3em var(--bunny-white),
+                    4em 1em 0 -0.3em var(--bunny-white),
+                    4em 1em 0 -0.4em var(--bunny-white);
+                animation: bunny-kick 1s infinite linear;
+            }
+            /* Ears */
+            .rabbit::after {
+                content: '';
+                position: absolute;
+                width: 0.75em;
+                height: 2em;
+                background: var(--bunny-white);
+                border-radius: 50% 100% 0 0;
+                transform: rotate(-30deg);
+                right: 1em;
+                top: -1em;
+                border-top: 1px solid var(--bunny-ear-edge);
+                border-left: 1px solid var(--bunny-ear-edge);
+                box-shadow: -0.5em 0 0 -0.1em var(--bunny-white);
+            }
+            /* NOTE: vertical bounce only - the original keyframes also
+               shuffled the bunny horizontally, but here the crossing
+               animation provides the forward motion */
+            @keyframes bunny-hop {
+                20% {
+                    transform: rotate(-10deg) translate(0, -2em);
+                    box-shadow: -0.2em 3em 0 -1em var(--bunny-shadow);
+                }
+                40% {
+                    transform: rotate(10deg) translate(0, -4em);
+                    box-shadow: -0.2em 3.25em 0 -1.1em var(--bunny-shadow);
+                }
+                60%,
+                75% {
+                    transform: rotate(0) translate(0, 0);
+                    box-shadow: -0.2em 1em 0 -0.75em var(--bunny-shadow);
+                }
+            }
+            @keyframes bunny-kick {
+                20%,
+                50% {
+                    box-shadow:
+                        4em 0.4em 0 -0.35em var(--bunny-eye),
+                        0.5em 1.5em 0 var(--bunny-white),
+                        4em 1.75em 0 -0.3em var(--bunny-white),
+                        4em 1.75em 0 -0.3em var(--bunny-white),
+                        4em 1.9em 0 -0.4em var(--bunny-white);
+                }
+                40% {
+                    box-shadow:
+                        4em 0.4em 0 -0.35em var(--bunny-eye),
+                        0.5em 2em 0 var(--bunny-white),
+                        4em 1.75em 0 -0.3em var(--bunny-white),
+                        4.2em 1.75em 0 -0.2em var(--bunny-white),
+                        4.4em 1.9em 0 -0.2em var(--bunny-white);
+                }
+            }
+
+            /* ---------------------------------------------------------------
+               Eggs - roll across the ground
+               --------------------------------------------------------------- */
+
+            .runner-egg-a,
+            .runner-egg-b {
+                width: 140px;
+                height: 200px;
+                transform: scale(var(--egg-scale));
+                transform-origin: bottom left;
+            }
+            /* The bob keeps the shell touching the ground: the egg's centre
+               is 100px up when the egg is upright but only 70px of shell is
+               below centre when it lies sideways, so the centre dips 30px
+               twice per revolution */
+            .egg-bob {
+                position: absolute;
+                inset: 0;
+                animation: egg-bob 1s ease-in-out infinite;
+            }
+            .egg-spin {
+                position: absolute;
+                inset: 0;
+                animation: egg-spin 1s linear infinite;
+            }
+            @keyframes egg-spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            @keyframes egg-bob {
+                0%,
+                50%,
+                100% {
+                    transform: translateY(0);
+                }
+                25%,
+                75% {
+                    transform: translateY(30px);
+                }
+            }
+            .egg {
+                width: 140px;
+                height: 200px;
+                background: var(--egg-shell);
+                border-radius: 50% / 60% 60% 40% 40%;
+                overflow: hidden;
+            }
+            .stripe {
+                height: 20%;
+            }
+            .stripe:not(:first-child) {
+                border-top: 2px solid #fff;
+            }
+            .stripe:nth-child(1) {
+                background-color: var(--egg-stripe-1);
+            }
+            .stripe:nth-child(2) {
+                background-color: var(--egg-stripe-2);
+            }
+            .stripe:nth-child(3) {
+                background-color: var(--egg-stripe-3);
+            }
+            .stripe:nth-child(4) {
+                background-color: var(--egg-stripe-4);
+            }
+            .stripe:nth-child(5) {
+                background-color: var(--egg-stripe-5);
+            }
+            .egg-dotted {
+                background-color: var(--egg-pink);
+                background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23FFFFFF' fill-opacity='0.2' fill-rule='evenodd'/%3E%3C/svg%3E");
+            }
+
+            /* ---------------------------------------------------------------
+               Error overlay
+               --------------------------------------------------------------- */
+
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 100;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="easter-run">
+            <div class="runner runner-bunny">
+                <div class="rabbit"></div>
+            </div>
+            <div class="runner runner-egg-a">
+                <div class="egg-bob">
+                    <div class="egg-spin">
+                        <div class="egg">
+                            <div class="stripe"></div>
+                            <div class="stripe"></div>
+                            <div class="stripe"></div>
+                            <div class="stripe"></div>
+                            <div class="stripe"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="runner runner-egg-b">
+                <div class="egg-bob">
+                    <div class="egg-spin">
+                        <div class="egg egg-dotted"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error-overlay"></div>
+
+        <!-- NOTE: plugin lives in easter/, SDK is at the repo root -->
+        <script src="../plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.scale        (number, default 1) - overall size
+                //                        multiplier for the runners
+                //   config.run_interval (number, default 20) - seconds between
+                //                        crossings
+                //   config.run_duration (number, default 6) - seconds a runner
+                //                        takes to cross the screen
+                //   config.bunny_chance (number 0-1, default 0.5) - probability
+                //                        a crossing is the bunny rather than a
+                //                        rolling egg (egg style is then 50/50)
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        scale: {
+                            type: 'number',
+                            title: 'Scale',
+                            description:
+                                'Overall size multiplier for the bunny and eggs (0.25 - 3).',
+                            default: 1,
+                        },
+                        run_interval: {
+                            type: 'number',
+                            title: 'Run Interval (seconds)',
+                            description:
+                                'How often something crosses the bottom of the screen (5 - 3600).',
+                            default: 20,
+                        },
+                        run_duration: {
+                            type: 'number',
+                            title: 'Run Duration (seconds)',
+                            description: 'How long a crossing takes (2 - 60).',
+                            default: 6,
+                        },
+                        bunny_chance: {
+                            type: 'number',
+                            title: 'Bunny Chance',
+                            description:
+                                'Probability a crossing is the hopping bunny rather than a rolling egg, 0 (always an egg) to 1 (always the bunny).',
+                            default: 0.5,
+                        },
+                    },
+                };
+
+                // Native (unscaled) sizes of the art pieces
+                var BUNNY_EM_WIDTH = 6; // Bunny stage width, em
+                var EGG_NATIVE_W = 140;
+                var EGG_NATIVE_H = 200;
+                // Rolling circumference of the egg (Ramanujan perimeter of a
+                // 140x200 ellipse) - one spin covers this much ground
+                var EGG_CIRCUMFERENCE = 538;
+
+                // Target sizes as a fraction of the larger viewport dimension
+                var BUNNY_FRACTION = 0.11; // of the bunny body width
+                var EGG_FRACTION = 0.11; // of the egg height
+
+                var RESIZE_DEBOUNCE_MS = 250;
+
+                var activeConfig = {
+                    scale: 1,
+                    runInterval: 20,
+                    runDuration: 6,
+                    bunnyChance: 0.5,
+                };
+
+                var playing = false;
+                var runTimer = null;
+                var resizeTimer = null;
+
+                var runEl = document.getElementById('easter-run');
+
+                var bunnyFont = 16;
+                var eggScale = 1;
+                var runnerOff = 320; // Off-screen start distance, css px
+
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'easter-overlay',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        activeConfig.scale = clampNumber(
+                            config.scale,
+                            0.25,
+                            3,
+                            1,
+                        );
+                        activeConfig.runInterval = clampNumber(
+                            config.run_interval,
+                            5,
+                            3600,
+                            20,
+                        );
+                        activeConfig.runDuration = clampNumber(
+                            config.run_duration,
+                            2,
+                            60,
+                            6,
+                        );
+                        activeConfig.bunnyChance = clampNumber(
+                            config.bunny_chance,
+                            0,
+                            1,
+                            0.5,
+                        );
+
+                        updateScales();
+                        if (playing) {
+                            scheduleRuns(false);
+                        }
+                        plugin.ready();
+                    },
+
+                    onPlay: function () {
+                        playing = true;
+                        // Unpause all CSS animations
+                        document.body.className = 'playing';
+                        scheduleRuns(true);
+                    },
+                });
+
+                if (!runEl) {
+                    plugin.error({
+                        code: 'MISSING_ELEMENT',
+                        message:
+                            'The runner stage element is missing from the DOM.',
+                        fatal: true,
+                    });
+                    showError('Internal error: missing stage element');
+                    return;
+                }
+
+                // ---------------------------------------------------------------
+                // Sizing
+                // ---------------------------------------------------------------
+
+                /**
+                 * Recompute the bunny font size, egg scale and the off-screen
+                 * start offset so runner sizes are a fixed fraction of the
+                 * larger viewport dimension.
+                 */
+                function updateScales() {
+                    var vmax = Math.max(window.innerWidth, window.innerHeight);
+                    var root = document.documentElement.style;
+
+                    // The bunny body is 5em wide at stage font size
+                    bunnyFont =
+                        (vmax * BUNNY_FRACTION * activeConfig.scale) / 5;
+                    eggScale =
+                        (vmax * EGG_FRACTION * activeConfig.scale) /
+                        EGG_NATIVE_H;
+
+                    var bunnyWidth = BUNNY_EM_WIDTH * bunnyFont;
+                    var eggWidth = EGG_NATIVE_W * eggScale;
+                    runnerOff = Math.ceil(Math.max(bunnyWidth, eggWidth) + 60);
+
+                    root.setProperty('--bunny-font', bunnyFont + 'px');
+                    root.setProperty('--egg-scale', String(eggScale));
+                    root.setProperty('--easter-off', '-' + runnerOff + 'px');
+                }
+
+                // ---------------------------------------------------------------
+                // Run scheduling
+                // ---------------------------------------------------------------
+
+                /**
+                 * (Re)start the crossing timer.
+                 *
+                 * @param {boolean} immediate - Launch a crossing right away
+                 */
+                function scheduleRuns(immediate) {
+                    if (runTimer !== null) {
+                        clearInterval(runTimer);
+                        runTimer = null;
+                    }
+                    if (immediate) {
+                        launchRun();
+                    }
+                    runTimer = setInterval(
+                        launchRun,
+                        activeConfig.runInterval * 1000,
+                    );
+                }
+
+                /**
+                 * Send a randomly chosen runner across the bottom of the
+                 * screen: the bunny (bunny_chance) or one of the two egg
+                 * styles (50/50 between them).
+                 */
+                function launchRun() {
+                    if (document.hidden) {
+                        return;
+                    }
+                    // Skip if a crossing is still in progress
+                    if (runEl.className.indexOf('running') !== -1) {
+                        return;
+                    }
+
+                    var pick;
+                    if (Math.random() < activeConfig.bunnyChance) {
+                        pick = 'bunny';
+                    } else {
+                        pick = Math.random() < 0.5 ? 'egg-a' : 'egg-b';
+                    }
+
+                    if (pick !== 'bunny') {
+                        syncEggSpin();
+                    }
+
+                    runEl.style.animationDuration =
+                        activeConfig.runDuration + 's';
+                    runEl.className = 'running ' + pick;
+                }
+
+                /**
+                 * Match the egg's spin (and ground-contact bob) rate to the
+                 * crossing speed so the egg reads as rolling, not sliding.
+                 */
+                function syncEggSpin() {
+                    var travel = window.innerWidth + runnerOff;
+                    var speed = travel / activeConfig.runDuration;
+                    var spinSeconds = (EGG_CIRCUMFERENCE * eggScale) / speed;
+
+                    var spinners = runEl.getElementsByClassName('egg-spin');
+                    var bobbers = runEl.getElementsByClassName('egg-bob');
+                    var i;
+                    for (i = 0; i < spinners.length; i++) {
+                        spinners[i].style.animationDuration = spinSeconds + 's';
+                    }
+                    for (i = 0; i < bobbers.length; i++) {
+                        bobbers[i].style.animationDuration = spinSeconds + 's';
+                    }
+                }
+
+                runEl.addEventListener('animationend', function (event) {
+                    // Descendant animation events bubble here too - only the
+                    // crossing itself should reset the element
+                    if (event.animationName !== 'easter-run-move') {
+                        return;
+                    }
+                    // Reset so the next launch restarts the animation
+                    runEl.className = '';
+                });
+
+                // ---------------------------------------------------------------
+                // Resize handling
+                // ---------------------------------------------------------------
+
+                window.addEventListener('resize', function () {
+                    if (resizeTimer !== null) {
+                        clearTimeout(resizeTimer);
+                    }
+                    resizeTimer = setTimeout(function () {
+                        resizeTimer = null;
+                        updateScales();
+                    }, RESIZE_DEBOUNCE_MS);
+                });
+
+                // Size the runners immediately so the overlay looks right
+                // even before the first config arrives
+                updateScales();
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Clamp a numeric config value, falling back when missing or
+                 * not a finite number.
+                 *
+                 * @param {*} value - Raw config value
+                 * @param {number} min - Minimum allowed value
+                 * @param {number} max - Maximum allowed value
+                 * @param {number} fallback - Default when invalid
+                 * @returns {number}
+                 */
+                function clampNumber(value, min, max, fallback) {
+                    if (typeof value !== 'number' || !isFinite(value)) {
+                        return fallback;
+                    }
+                    return Math.max(min, Math.min(max, value));
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>
