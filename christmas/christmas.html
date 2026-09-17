@@ -1,0 +1,2273 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Christmas Overlay Plugin</title>
+        <!--
+            NOTE: This plugin is a decorative overlay rendered in a fullscreen
+            iframe ABOVE other signage content, so the page background must be
+            transparent (a deliberate deviation from the usual `background: #000`
+            template rule). The host should embed it with:
+
+                <iframe src="christmas/christmas.html" allowtransparency="true"
+                        style="pointer-events: none; border: 0;"></iframe>
+
+            Three effects:
+            - Falling snow (canvas) that accumulates into a ground drift along
+              the bottom of the screen.
+            - A snow plow (CSS art, canvas-synced) that periodically drives
+              across the bottom, scraping up the drift into a growing pile in
+              front of its blade.
+            - Santa's sleigh (CSS art adapted from a community CodePen example
+              supplied with the request) flying across the screen at a random
+              height, exactly like the Halloween witch.
+
+            The plow and santa are authored at fixed pixel sizes and scaled
+            with CSS variables computed from the larger viewport dimension
+            (vmax), so sizing tracks the screen dimensions.
+        -->
+        <style>
+            :root {
+                /* Element scales - computed by JS from viewport size */
+                --plow-scale: 1;
+                --santa-scale: 1;
+                --santa-off: -420px;
+
+                /* Snow palette */
+                --snow-white: #ffffff;
+
+                /* Plow palette - chunky flat style with dark outlines */
+                --plow-orange: #f0942d;
+                --plow-orange-dark: #d97f14;
+                --plow-outline: #211a12;
+                --plow-window: #bfe3f5;
+                --plow-hub: #d8d8d8;
+
+                /* Santa palette */
+                --reindeer-color: #654321;
+                --reindeer-horn: #deb887;
+                --reindeer-hoof: #362514;
+                --sleigh-color: #8b0000;
+                --sleigh-gold: #daa520;
+                --sleigh-runner: #996515;
+                --santa-clothe: #d63527;
+                --santa-face: #fde2b7;
+                --santa-beard: #ffffff;
+                --santa-nose: #f7d194;
+                --santa-cheek: #f4cfe3;
+                --santa-sack: #362312;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                /* NOTE: transparent so the underlying signage page shows through */
+                background: transparent;
+            }
+
+            /* Everything holds still until the host sends "play" */
+            body:not(.playing) *,
+            body:not(.playing) *::before,
+            body:not(.playing) *::after {
+                animation-play-state: paused !important;
+            }
+
+            /* ---------------------------------------------------------------
+               Snow canvas - flakes, ground drift and the plow's pile
+               --------------------------------------------------------------- */
+
+            #snow-canvas {
+                position: fixed;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 5;
+            }
+
+            /* ---------------------------------------------------------------
+               Snow plow - CSS art truck, moved along the bottom by JS
+               --------------------------------------------------------------- */
+
+            #plow {
+                position: fixed;
+                left: 0;
+                bottom: 0;
+                z-index: 10;
+                visibility: hidden;
+                will-change: transform;
+            }
+            #plow.running {
+                visibility: visible;
+            }
+            .plow-scale {
+                position: relative;
+                width: 260px;
+                height: 130px;
+                transform: scale(var(--plow-scale));
+                transform-origin: bottom left;
+            }
+            .plow-scale div {
+                position: absolute;
+            }
+            .plow-chassis {
+                left: 2px;
+                bottom: 20px;
+                width: 214px;
+                height: 16px;
+                background: var(--plow-outline);
+                border-radius: 8px;
+                z-index: 2;
+            }
+            /* Rear dump bed that the collected snow piles up in */
+            .plow-hopper {
+                left: 2px;
+                bottom: 34px;
+                width: 92px;
+                height: 48px;
+                background: var(--plow-orange);
+                border: 4px solid var(--plow-outline);
+                border-radius: 8px 10px 4px 10px;
+                transform: rotate(-3deg);
+                z-index: 4;
+            }
+            .plow-hopper::before {
+                content: '';
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                width: 68px;
+                height: 8px;
+                background: var(--plow-orange-dark);
+                border-radius: 4px;
+            }
+            /* Snow load in the hopper - scaleY driven by JS as the plow
+               collects the drift, rising up out of the bed */
+            .plow-hopper-snow {
+                left: 8px;
+                bottom: 56px;
+                width: 76px;
+                height: 34px;
+                background: #ffffff;
+                border: 4px solid var(--plow-outline);
+                border-radius: 45% 45% 8px 8px / 85% 85% 8px 8px;
+                transform: scaleY(0.3);
+                transform-origin: bottom center;
+                z-index: 3;
+            }
+            .plow-cab {
+                left: 96px;
+                bottom: 40px;
+                width: 58px;
+                height: 64px;
+                background: var(--plow-orange);
+                border: 4px solid var(--plow-outline);
+                border-radius: 10px 12px 2px 2px;
+                z-index: 5;
+            }
+            .plow-window {
+                left: 106px;
+                bottom: 68px;
+                width: 38px;
+                height: 28px;
+                background: var(--plow-window);
+                border: 4px solid var(--plow-outline);
+                border-radius: 4px 8px 2px 2px;
+                z-index: 6;
+            }
+            /* Hood sloping down towards the blade */
+            .plow-hood {
+                left: 150px;
+                bottom: 36px;
+                width: 56px;
+                height: 30px;
+                background: var(--plow-orange-dark);
+                border: 4px solid var(--plow-outline);
+                border-radius: 2px 12px 2px 2px;
+                z-index: 4;
+            }
+            .plow-arm {
+                left: 198px;
+                bottom: 40px;
+                width: 32px;
+                height: 12px;
+                background: var(--plow-outline);
+                border-radius: 6px;
+                transform: rotate(10deg);
+                z-index: 3;
+            }
+            .plow-blade {
+                left: 224px;
+                bottom: 0;
+                width: 34px;
+                height: 80px;
+                background: var(--plow-orange);
+                border: 4px solid var(--plow-outline);
+                border-radius: 12px 16px 4px 6px;
+                transform: skewX(-7deg);
+                transform-origin: bottom left;
+                z-index: 5;
+            }
+            .plow-blade::before {
+                content: '';
+                position: absolute;
+                top: 6px;
+                left: 4px;
+                width: 8px;
+                height: 60px;
+                background: var(--plow-orange-dark);
+                border-radius: 6px;
+            }
+            .plow-wheel {
+                bottom: 0;
+                width: 42px;
+                height: 42px;
+                background: var(--plow-outline);
+                border-radius: 50%;
+                z-index: 6;
+            }
+            .plow-wheel::before {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 18px;
+                height: 18px;
+                margin: -9px 0 0 -9px;
+                background: var(--plow-hub);
+                border-radius: 50%;
+            }
+            /* Off-centre dot on the hub so the wheel spin reads */
+            .plow-wheel::after {
+                content: '';
+                position: absolute;
+                top: 9px;
+                left: 50%;
+                width: 6px;
+                height: 6px;
+                margin-left: -3px;
+                background: var(--plow-outline);
+                border-radius: 50%;
+            }
+            .plow-wheel-back {
+                left: 6px;
+            }
+            .plow-wheel-mid {
+                left: 54px;
+            }
+            .plow-wheel-front {
+                left: 102px;
+            }
+            #plow.running .plow-wheel {
+                animation: plow-wheel-spin 0.6s linear infinite;
+            }
+            @keyframes plow-wheel-spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            /* ---------------------------------------------------------------
+               Santa - flies across the screen at a random height
+               --------------------------------------------------------------- */
+
+            #santa-flight {
+                position: fixed;
+                left: 0;
+                top: 40%;
+                z-index: 30;
+                visibility: hidden;
+            }
+            #santa-flight.flying {
+                visibility: visible;
+                animation-name: santa-fly;
+                animation-timing-function: linear;
+                animation-fill-mode: both;
+                animation-duration: 4s;
+            }
+            @keyframes santa-fly {
+                from {
+                    transform: translateX(var(--santa-off));
+                }
+                to {
+                    transform: translateX(100vw);
+                }
+            }
+            .santa-scale {
+                position: relative;
+                width: 295px;
+                height: 185px;
+                transform: scale(var(--santa-scale));
+                transform-origin: top left;
+            }
+
+            /* Sleigh, santa, reindeer - flattened from the supplied SCSS */
+            #santa-flight .sleigh-santa {
+                position: absolute;
+                top: 20px;
+                left: 0;
+                width: 295px;
+                height: 155px;
+                transform: rotate(-1deg);
+            }
+            #santa-flight .santa {
+                position: absolute;
+                bottom: 0;
+                left: 50%;
+                width: 125px;
+                height: 107px;
+                z-index: 10;
+            }
+            #santa-flight .santa--sleigh {
+                bottom: 0;
+                left: 0;
+                transform: rotateY(180deg);
+            }
+            #santa-flight .santa--sleigh::before,
+            #santa-flight .santa--sleigh::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                background-color: var(--sleigh-color);
+            }
+            #santa-flight .santa--sleigh::before {
+                left: -10px;
+                width: 129px;
+                height: 30px;
+                border-radius: 5px 5% 10px 65%;
+                transform: rotate(0);
+                z-index: 10;
+                border-bottom: 2px solid var(--sleigh-gold);
+            }
+            #santa-flight .santa--sleigh::after {
+                border: 2px solid var(--sleigh-gold);
+                left: 70px;
+                bottom: 0;
+                width: 50px;
+                height: 57px;
+                border-radius: 50% 10px 16px 10px;
+                transform: rotate(1deg);
+                box-shadow: -98px -2px 0 -18px var(--sleigh-color);
+            }
+            #santa-flight .santa__hat-part {
+                position: absolute;
+                top: 7px;
+                left: 31px;
+                width: 43px;
+                height: 58px;
+                border-radius: 50%;
+                transform: rotate(28deg);
+                background-color: var(--santa-clothe);
+            }
+            #santa-flight .santa__hat-part:nth-of-type(1)::before {
+                content: '';
+                position: absolute;
+                top: 9px;
+                left: 45px;
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background-color: #fff;
+                animation: santa-hat-bobble 1s linear alternate infinite;
+            }
+            #santa-flight .santa__hat-part:nth-of-type(1)::after {
+                content: '';
+                position: absolute;
+                top: 3px;
+                left: 19px;
+                width: 30px;
+                height: 7px;
+                border-radius: 50%;
+                transform: rotate(22deg);
+                background-color: var(--santa-clothe);
+                animation: santa-hat-main 1s linear alternate infinite;
+            }
+            #santa-flight .santa__hat-part:nth-of-type(2) {
+                position: absolute;
+                top: 18px;
+                left: 31px;
+                width: 44px;
+                height: 34px;
+                border-radius: 50%;
+                transform: rotate(12deg);
+                background-color: #fff;
+            }
+            #santa-flight .santa__face {
+                position: absolute;
+                top: 25px;
+                left: 37px;
+                width: 31px;
+                height: 17px;
+                border-radius: 20px 20px 50% 50%;
+                transform: rotate(10deg);
+                background-color: var(--santa-face);
+                z-index: 10;
+            }
+            #santa-flight .santa__beard-part {
+                position: absolute;
+                top: 8px;
+                left: -14px;
+                width: 15px;
+                height: 17px;
+                border-radius: 50%;
+                background-color: var(--santa-beard);
+            }
+            #santa-flight .santa__beard-part::before,
+            #santa-flight .santa__beard-part::after {
+                content: '';
+                position: absolute;
+                background-color: var(--santa-beard);
+            }
+            #santa-flight .santa__beard-part::before {
+                top: 12px;
+                left: 1px;
+                width: 15px;
+                height: 17px;
+                border-radius: 50%;
+            }
+            #santa-flight .santa__beard-part:nth-of-type(2) {
+                top: 16px;
+                left: -8px;
+                width: 26px;
+                height: 30px;
+            }
+            #santa-flight .santa__beard-part:nth-of-type(2)::before {
+                top: 16px;
+                left: 13px;
+                width: 19px;
+                height: 17px;
+            }
+            #santa-flight .santa__beard-part:nth-of-type(2)::after {
+                top: 1px;
+                left: 13px;
+                width: 19px;
+                height: 17px;
+            }
+            #santa-flight .santa__beard-part:nth-of-type(3) {
+                top: 16px;
+                left: 14px;
+                width: 27px;
+                height: 28px;
+            }
+            #santa-flight .santa__beard-part:nth-of-type(3)::before {
+                top: -4px;
+                left: 13px;
+                width: 17px;
+                height: 17px;
+            }
+            #santa-flight .santa__eyebrows {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 2px;
+                height: 7px;
+                border-radius: 50%;
+                background-color: #fff;
+            }
+            #santa-flight .santa__eyebrows--left {
+                top: 1px;
+                left: 4px;
+                transform: rotate(65deg);
+            }
+            #santa-flight .santa__eyebrows--right {
+                top: 2px;
+                left: 22px;
+                transform: rotate(-65deg);
+            }
+            #santa-flight .santa__eye {
+                position: absolute;
+                top: 8px;
+                left: 2px;
+                width: 3px;
+                height: 4px;
+                border-radius: 50%;
+                background-color: #000;
+            }
+            #santa-flight .santa__eye--left {
+                top: 8px;
+                left: 2px;
+            }
+            #santa-flight .santa__eye--right {
+                top: 8px;
+                left: 20px;
+            }
+            #santa-flight .santa__nose {
+                position: absolute;
+                top: 10px;
+                left: 6px;
+                width: 12px;
+                height: 9px;
+                border-radius: 50%;
+                z-index: 10;
+                background-color: var(--santa-nose);
+            }
+            #santa-flight .santa__cheek {
+                position: absolute;
+                top: 10px;
+                left: 6px;
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                z-index: 10;
+                background-color: var(--santa-cheek);
+            }
+            #santa-flight .santa__cheek--left {
+                top: 12px;
+                left: -3px;
+            }
+            #santa-flight .santa__cheek--right {
+                top: 13px;
+                left: 22px;
+            }
+            #santa-flight .santa__body {
+                position: absolute;
+                top: 54px;
+                left: 16px;
+                width: 88px;
+                height: 53px;
+            }
+            /* The toy sack behind santa */
+            #santa-flight .santa__body::before {
+                content: '';
+                position: absolute;
+                top: -23px;
+                right: -10px;
+                width: 53px;
+                height: 51px;
+                border-radius: 42% 50%;
+                background-color: var(--santa-sack);
+                z-index: -1;
+                box-shadow:
+                    10px -21px 0 -20px #e1b12c,
+                    15px -30px 0 -18px var(--santa-sack);
+                animation: santa-sac 0.6s linear alternate infinite;
+            }
+            #santa-flight .santa__body-top {
+                top: -3px;
+                left: 10px;
+                position: absolute;
+                width: 45px;
+                height: 39px;
+                border-radius: 50% 50% 10% 10%;
+                background-color: var(--santa-clothe);
+                z-index: 5;
+            }
+            #santa-flight .santa__body-top::before {
+                content: '';
+                top: 28px;
+                left: 0;
+                position: absolute;
+                width: 45px;
+                height: 5px;
+                background-color: #000;
+                transform: rotate(1deg);
+            }
+            #santa-flight .santa__body-top::after {
+                content: '';
+                top: 27px;
+                left: 10px;
+                position: absolute;
+                width: 7px;
+                height: 5px;
+                background-color: #000;
+                border: 1px solid #fff;
+                border-radius: 3px;
+                transform: rotate(1deg);
+            }
+            #santa-flight .santa__hand {
+                position: absolute;
+            }
+            #santa-flight .santa__hand--left {
+                top: 5px;
+                left: 19px;
+                width: 33px;
+                height: 30px;
+                overflow: hidden;
+            }
+            #santa-flight .santa__hand-inner {
+                position: absolute;
+                top: 10px;
+                left: 8px;
+                width: 49px;
+                z-index: 100;
+                height: 7px;
+                border-radius: 10px;
+                transform: rotate(12deg);
+                background-color: var(--santa-clothe);
+            }
+            #santa-flight .santa__hand-inner::before {
+                content: '';
+                position: absolute;
+                width: 8px;
+                height: 7px;
+                top: -2px;
+                left: -6px;
+                background-color: #000;
+                border-radius: 50%;
+                transform: rotate(25deg);
+            }
+            #santa-flight .santa__hand--right {
+                top: 4px;
+                left: 3px;
+                width: 11px;
+                height: 8px;
+                transform: rotate(-60deg);
+                border-radius: 50%;
+                background-color: var(--santa-clothe);
+            }
+            #santa-flight .santa--sleigh .santa__hand-inner {
+                animation: sleigh-santa-hand-left 1s linear alternate infinite;
+            }
+            #santa-flight .santa--sleigh .santa__hand--right {
+                transform: rotate(25deg);
+                border-radius: 10px;
+                height: 7px;
+                animation: sleigh-santa-hand-right 1s linear alternate infinite;
+            }
+            #santa-flight .santa--sleigh .santa__hand--right::before {
+                content: '';
+                position: absolute;
+                width: 8px;
+                height: 7px;
+                top: -2px;
+                left: -6px;
+                background-color: #000;
+                border-radius: 50%;
+                transform: rotate(10deg);
+            }
+            #santa-flight .lead {
+                position: absolute;
+                top: 92px;
+                left: 84px;
+                width: 182px;
+                height: 33px;
+                overflow: hidden;
+                z-index: 10;
+                transform: rotate(0deg);
+                animation: sleigh-santa-lead-right 1s linear alternate infinite;
+            }
+            #santa-flight .lead--back {
+                top: 85px;
+                left: 105px;
+                width: 149px;
+                transform: rotate(4deg);
+                z-index: 0;
+                animation: sleigh-santa-lead-left 1s linear alternate infinite;
+            }
+            #santa-flight .lead-inner {
+                position: absolute;
+                bottom: 0;
+                left: -12px;
+                width: 100%;
+                height: 48px;
+                border-bottom: 1px solid #fff;
+                border-radius: 50%;
+            }
+            #santa-flight .sleigh-feet {
+                position: absolute;
+                bottom: -10px;
+                left: 0;
+                width: 145px;
+                height: 11px;
+                transform: rotate(-5deg);
+                border-bottom: 5px solid var(--sleigh-runner);
+                border-right: 5px solid var(--sleigh-runner);
+                border-radius: 10px;
+                z-index: 2;
+            }
+            #santa-flight .sleigh-feet::before,
+            #santa-flight .sleigh-feet::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 5px;
+                height: 5px;
+                background-color: var(--sleigh-runner);
+            }
+            #santa-flight .sleigh-feet::before {
+                top: 2px;
+                left: 34px;
+                height: 9px;
+            }
+            #santa-flight .sleigh-feet::after {
+                top: 3px;
+                left: 108px;
+                width: 5px;
+                height: 8px;
+            }
+            #santa-flight .reindeer {
+                position: absolute;
+                width: 115px;
+                height: 155px;
+                right: 5px;
+                top: 17px;
+                transform: rotate(25deg);
+                z-index: 0;
+            }
+            /* Harness strap and bells */
+            #santa-flight .reindeer::before {
+                content: '';
+                position: absolute;
+                top: 65px;
+                left: 76px;
+                width: 8px;
+                height: 31px;
+                background-color: var(--sleigh-color);
+                z-index: 10;
+                transform: rotate(-55deg);
+            }
+            #santa-flight .reindeer::after {
+                content: '';
+                position: absolute;
+                height: 5px;
+                width: 5px;
+                border-radius: 50%;
+                background-color: var(--sleigh-gold);
+                z-index: 11;
+                left: 64px;
+                top: 68px;
+                box-shadow:
+                    8px 6px 0 0 var(--sleigh-gold),
+                    18px 13px 0 0 var(--sleigh-gold),
+                    26px 18px 0 0 var(--sleigh-gold);
+            }
+            #santa-flight .reindeer__face {
+                position: absolute;
+                width: 30px;
+                height: 22px;
+                top: 44px;
+                left: 72px;
+                border-radius: 10px 10px 50% 50%;
+                transform: rotate(-3deg);
+                background-color: var(--reindeer-color);
+                animation: reindeer-face 1.6s linear alternate infinite;
+            }
+            #santa-flight .reindeer__face::before {
+                content: '';
+                position: absolute;
+                background-color: var(--reindeer-color);
+                width: 29px;
+                height: 16px;
+                border-radius: 50%;
+                top: 0;
+                left: 11px;
+                transform: rotate(-49deg);
+            }
+            /* Red nose */
+            #santa-flight .reindeer__face::after {
+                content: '';
+                position: absolute;
+                background-color: var(--sleigh-color);
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                top: -8px;
+                left: 31px;
+            }
+            #santa-flight .reindeer__horn {
+                position: absolute;
+                width: 29px;
+                height: 4px;
+                top: -7px;
+                left: -21px;
+                border-radius: 2px;
+                transform: rotate(38deg);
+                background-color: var(--reindeer-horn);
+            }
+            #santa-flight .reindeer__horn::before,
+            #santa-flight .reindeer__horn::after {
+                content: '';
+                position: absolute;
+                background-color: var(--reindeer-horn);
+                border-radius: 2px;
+            }
+            #santa-flight .reindeer__horn--left {
+                top: -7px;
+                left: -21px;
+            }
+            #santa-flight .reindeer__horn--left::before {
+                top: -4px;
+                left: 6px;
+                width: 14px;
+                height: 4px;
+                transform: rotate(43deg);
+            }
+            #santa-flight .reindeer__horn--left::after {
+                top: -4px;
+                left: 13px;
+                width: 14px;
+                height: 4px;
+                transform: rotate(53deg);
+            }
+            #santa-flight .reindeer__horn--right {
+                top: -12px;
+                left: -6px;
+                width: 24px;
+                transform: rotate(62deg);
+            }
+            #santa-flight .reindeer__horn--right::before {
+                top: -3px;
+                left: 5px;
+                width: 10px;
+                height: 4px;
+                transform: rotate(43deg);
+            }
+            #santa-flight .reindeer__horn--right::after {
+                top: -3px;
+                left: 11px;
+                width: 10px;
+                height: 4px;
+                transform: rotate(53deg);
+            }
+            #santa-flight .reindeer__ear {
+                position: absolute;
+                width: 21px;
+                height: 11px;
+                top: 4px;
+                left: -18px;
+                border-radius: 4px 0 50% 50%;
+                transform: rotate(4deg);
+                background-color: var(--reindeer-color);
+            }
+            /* Eye */
+            #santa-flight .reindeer__ear::before {
+                content: '';
+                position: absolute;
+                top: -2px;
+                left: 34px;
+                width: 4px;
+                height: 5px;
+                border-radius: 50%;
+                transform: rotate(-35deg);
+                background-color: #000;
+            }
+            #santa-flight .reindeer__body {
+                position: absolute;
+                width: 58px;
+                height: 31px;
+                top: 84px;
+                left: 28px;
+                border-radius: 50% 0;
+                transform: rotate(-3deg);
+                background-color: var(--reindeer-color);
+            }
+            #santa-flight .reindeer__body::before {
+                content: '';
+                position: absolute;
+                width: 46px;
+                height: 26px;
+                top: -15px;
+                left: 32px;
+                border-radius: 0 0 50% 50%;
+                transform: rotate(-55deg);
+                background-color: var(--reindeer-color);
+            }
+            #santa-flight .reindeer__body::after {
+                content: '';
+                position: absolute;
+                width: 43px;
+                height: 26px;
+                top: -11px;
+                left: 29px;
+                border-radius: 0 0 50% 50%;
+                transform: rotate(-30deg);
+                background-color: var(--reindeer-color);
+            }
+            #santa-flight .reindeer__foot-inner {
+                position: absolute;
+            }
+            #santa-flight .reindeer__foot-inner::before,
+            #santa-flight .reindeer__foot-inner::after {
+                content: '';
+                position: absolute;
+            }
+            #santa-flight .reindeer__foot--inside {
+                z-index: 2;
+                transform: rotate(-12deg) translate(3px, 0);
+            }
+            #santa-flight .reindeer__foot--front .reindeer__foot-inner {
+                width: 40px;
+                height: 8px;
+                top: 13px;
+                left: 35px;
+                border-radius: 0 50%;
+                transform: rotate(-17deg);
+                transform-origin: center;
+                background-color: var(--reindeer-color);
+                animation: reindeer-front 1.6s linear alternate infinite;
+            }
+            #santa-flight .reindeer__foot--front .reindeer__foot-inner::before {
+                width: 28px;
+                height: 8px;
+                top: 0;
+                left: 37px;
+                border-radius: 2px 50%;
+                transform: rotate(131deg);
+                background-color: var(--reindeer-color);
+                animation: reindeer-front-ext 1.7s linear alternate infinite;
+            }
+            #santa-flight .reindeer__foot--front .reindeer__foot-inner::after {
+                width: 8px;
+                height: 9px;
+                top: 27px;
+                left: 32px;
+                border-radius: 2px;
+                transform: rotate(131deg);
+                background-color: var(--reindeer-hoof);
+                animation: reindeer-front-ext-hoof 1.7s linear alternate
+                    infinite;
+            }
+            #santa-flight .reindeer__foot--back .reindeer__foot-inner {
+                width: 56px;
+                height: 9px;
+                top: 35px;
+                left: -29px;
+                border-radius: 0 50%;
+                transform: rotate(-73deg);
+                background-color: var(--reindeer-color);
+                animation: reindeer-back 1.7s linear alternate infinite;
+            }
+            #santa-flight .reindeer__foot--back .reindeer__foot-inner::before {
+                width: 25px;
+                height: 16px;
+                top: 4px;
+                left: 25px;
+                border-radius: 0 50%;
+                transform: rotate(15deg);
+                background-color: var(--reindeer-color);
+            }
+            #santa-flight .reindeer__foot--back .reindeer__foot-inner::after {
+                width: 8px;
+                height: 9px;
+                top: -2px;
+                left: -2px;
+                border-radius: 2px 0 2px 2px;
+                transform: rotate(14deg);
+                background-color: var(--reindeer-hoof);
+            }
+            #santa-flight .reindeer__tail {
+                position: absolute;
+                width: 27px;
+                height: 26px;
+                top: 6px;
+                left: -8px;
+                border-radius: 50% 2px;
+                transform: rotate(-17deg);
+                background-color: var(--reindeer-color);
+            }
+            #santa-flight .reindeer__tail::before {
+                content: '';
+                position: absolute;
+                background-color: var(--reindeer-color);
+                border-radius: 50%;
+                top: -2px;
+                left: -3px;
+                width: 15px;
+                height: 5px;
+                transform: rotate(25deg);
+            }
+            #santa-flight .reindeer__spots {
+                position: absolute;
+                width: 4px;
+                height: 4px;
+                top: 6px;
+                left: 8px;
+                border-radius: 50% 2px;
+                background-color: var(--reindeer-horn);
+                box-shadow:
+                    5px 5px 0 0 var(--reindeer-horn),
+                    -5px 5px 0 0 var(--reindeer-horn);
+            }
+            /* Sparkle trail behind the sleigh */
+            #santa-flight .particles {
+                position: absolute;
+                bottom: -30px;
+                left: 0;
+                width: 7px;
+                height: 7px;
+                background-color: transparent;
+                transform: rotate(45deg);
+                z-index: -10;
+            }
+            #santa-flight .particles::before,
+            #santa-flight .particles::after {
+                position: absolute;
+                content: '';
+                background-color: #fff;
+            }
+            #santa-flight .particles::after {
+                left: 0;
+                top: 0;
+                width: 4px;
+                height: 4px;
+                transform: rotate(-5deg);
+                animation: santa-particles 4s linear infinite;
+                box-shadow:
+                    -20px 15px 0 0 #fff,
+                    -40px -5px 0 0 #fff,
+                    -20px 45px 0 0 #fff,
+                    -50px 30px 0 0 #fff,
+                    30px -20px 0 0 #fff,
+                    50px -60px 0 0 #fff,
+                    100px -110px 0 0 #fff,
+                    140px -160px 0 0 #fff,
+                    50px -90px 0 0 #fff,
+                    100px -140px 0 0 #fff,
+                    140px -190px 0 0 #fff,
+                    -40px 15px 0 -1px #fff,
+                    -60px -5px 0 -1px #fff,
+                    -40px 45px 0 -1px #fff,
+                    -70px 30px 0 -1px #fff,
+                    50px -20px 0 -1px #fff,
+                    70px -60px 0 -1px #fff,
+                    120px -110px 0 -1px #fff,
+                    160px -160px 0 -1px #fff,
+                    70px -90px 0 -1px #fff,
+                    120px -140px 0 -1px #fff,
+                    160px -190px 0 -1px #fff,
+                    0 15px 0 -2px #fff,
+                    -20px -5px 0 -2px #fff,
+                    0 45px 0 -2px #fff,
+                    -30px 30px 0 -2px #fff,
+                    10px -20px 0 -2px #fff,
+                    30px -60px 0 -2px #fff,
+                    80px -110px 0 -2px #fff,
+                    120px -160px 0 -2px #fff,
+                    30px -90px 0 -2px #fff,
+                    80px -140px 0 -2px #fff,
+                    120px -190px 0 -2px #fff;
+            }
+            #santa-flight .particles::before {
+                left: 10px;
+                top: 0;
+                width: 2px;
+                height: 2px;
+                transform: rotate(-10deg);
+                animation: santa-particles 5s linear infinite;
+                box-shadow:
+                    -20px 15px 0 0 #fff,
+                    -40px -5px 0 0 #fff,
+                    -20px 45px 0 0 #fff,
+                    -50px 30px 0 0 #fff,
+                    30px -20px 0 0 #fff,
+                    50px -60px 0 0 #fff,
+                    100px -110px 0 0 #fff,
+                    140px -160px 0 0 #fff,
+                    50px -90px 0 0 #fff,
+                    100px -140px 0 0 #fff,
+                    140px -190px 0 0 #fff,
+                    -40px 15px 0 -1px #fff,
+                    -60px -5px 0 -1px #fff,
+                    -40px 45px 0 -1px #fff,
+                    -70px 30px 0 -1px #fff,
+                    50px -20px 0 -1px #fff,
+                    70px -60px 0 -1px #fff,
+                    120px -110px 0 -1px #fff,
+                    160px -160px 0 -1px #fff,
+                    70px -90px 0 -1px #fff,
+                    120px -140px 0 -1px #fff,
+                    160px -190px 0 -1px #fff,
+                    0 15px 0 -2px #fff,
+                    -20px -5px 0 -2px #fff,
+                    0 45px 0 -2px #fff,
+                    -30px 30px 0 -2px #fff,
+                    10px -20px 0 -2px #fff,
+                    30px -60px 0 -2px #fff,
+                    80px -110px 0 -2px #fff,
+                    120px -160px 0 -2px #fff,
+                    30px -90px 0 -2px #fff,
+                    80px -140px 0 -2px #fff,
+                    120px -190px 0 -2px #fff;
+            }
+
+            @keyframes reindeer-face {
+                0% {
+                    transform: rotate(-8deg);
+                }
+                100% {
+                    transform: rotate(2deg);
+                }
+            }
+            @keyframes reindeer-back {
+                0% {
+                    transform: rotate(-81deg) translate(-6px, 0);
+                }
+                100% {
+                    transform: rotate(-60deg) translate(0, 0);
+                }
+            }
+            @keyframes reindeer-front {
+                0% {
+                    transform: rotate(-24deg);
+                }
+                100% {
+                    transform: rotate(-13deg);
+                }
+            }
+            @keyframes reindeer-front-ext {
+                0% {
+                    transform-origin: left;
+                    transform: rotate(55deg);
+                }
+                100% {
+                    transform-origin: left;
+                    transform: rotate(145deg);
+                }
+            }
+            @keyframes reindeer-front-ext-hoof {
+                0% {
+                    transform-origin: left top;
+                    transform: rotate(-32deg) translate(14px, 1px);
+                }
+                100% {
+                    transform-origin: left top;
+                    transform: rotate(52deg) translate(-21px, 0);
+                }
+            }
+            @keyframes sleigh-santa-lead-left {
+                0% {
+                    transform: rotate(1deg);
+                }
+                100% {
+                    transform: rotate(-2deg);
+                }
+            }
+            @keyframes sleigh-santa-hand-left {
+                0% {
+                    transform: rotate(15deg);
+                }
+                100% {
+                    transform: rotate(-2deg);
+                }
+            }
+            @keyframes sleigh-santa-lead-right {
+                0% {
+                    transform: rotate(2deg);
+                }
+                100% {
+                    transform: rotate(-4deg);
+                }
+            }
+            @keyframes sleigh-santa-hand-right {
+                0% {
+                    transform: rotate(15deg);
+                }
+                100% {
+                    transform: rotate(-30deg);
+                }
+            }
+            @keyframes santa-hat-main {
+                0% {
+                    transform-origin: left;
+                    transform: rotate(-15deg);
+                }
+                100% {
+                    transform-origin: left;
+                    transform: rotate(15deg);
+                }
+            }
+            @keyframes santa-hat-bobble {
+                0% {
+                    transform: translate(0, -15px);
+                }
+                100% {
+                    transform: translate(0, 5px);
+                }
+            }
+            @keyframes santa-sac {
+                0% {
+                    transform: rotate(5deg);
+                }
+                100% {
+                    transform: rotate(0deg);
+                }
+            }
+            @keyframes santa-particles {
+                0% {
+                    transform: translate(20px, -20px);
+                    opacity: 1;
+                }
+                100% {
+                    transform: translate(-80px, 80px);
+                    opacity: 0;
+                }
+            }
+
+            /* ---------------------------------------------------------------
+               Error overlay
+               --------------------------------------------------------------- */
+
+            #error-overlay {
+                display: none;
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #fff;
+                font-family: sans-serif;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 2rem;
+                font-size: 1.25rem;
+                z-index: 100;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Snow, drift and plow pile -->
+        <canvas id="snow-canvas"></canvas>
+
+        <!-- Snow plow driving along the bottom -->
+        <div id="plow">
+            <div class="plow-scale">
+                <div class="plow-chassis"></div>
+                <div class="plow-hopper-snow" id="plow-hopper-snow"></div>
+                <div class="plow-hopper"></div>
+                <div class="plow-cab"></div>
+                <div class="plow-window"></div>
+                <div class="plow-hood"></div>
+                <div class="plow-arm"></div>
+                <div class="plow-blade"></div>
+                <div class="plow-wheel plow-wheel-back"></div>
+                <div class="plow-wheel plow-wheel-mid"></div>
+                <div class="plow-wheel plow-wheel-front"></div>
+            </div>
+        </div>
+
+        <!-- Santa flying across the screen -->
+        <div id="santa-flight">
+            <div class="santa-scale">
+                <div class="sleigh-santa">
+                    <div class="santa santa--sleigh">
+                        <div class="santa__hat">
+                            <div class="santa__hat-part"></div>
+                            <div class="santa__hat-part"></div>
+                        </div>
+                        <div class="santa__face">
+                            <div
+                                class="santa__eyebrows santa__eyebrows--right"
+                            ></div>
+                            <div
+                                class="santa__eyebrows santa__eyebrows--left"
+                            ></div>
+                            <div class="santa__eye santa__eye--right"></div>
+                            <div class="santa__eye santa__eye--left"></div>
+                            <div class="santa__nose"></div>
+                            <div class="santa__cheek santa__cheek--right"></div>
+                            <div class="santa__cheek santa__cheek--left"></div>
+                            <div class="santa__beard">
+                                <div class="santa__beard-part"></div>
+                                <div class="santa__beard-part"></div>
+                                <div class="santa__beard-part"></div>
+                            </div>
+                            <div class="santa__mouth"></div>
+                        </div>
+                        <div class="santa__body">
+                            <div class="santa__body-top"></div>
+                            <div class="santa__hand santa__hand--left">
+                                <div class="santa__hand-inner"></div>
+                            </div>
+                            <div class="santa__hand santa__hand--right"></div>
+                        </div>
+                    </div>
+                    <div class="sleigh-feet"></div>
+                    <div class="lead">
+                        <div class="lead-inner"></div>
+                    </div>
+                    <div class="lead lead--back">
+                        <div class="lead-inner"></div>
+                    </div>
+                    <div class="reindeer">
+                        <div class="reindeer__face">
+                            <div class="reindeer__ear"></div>
+                            <div
+                                class="reindeer__horn reindeer__horn--right"
+                            ></div>
+                            <div
+                                class="reindeer__horn reindeer__horn--left"
+                            ></div>
+                        </div>
+                        <div class="reindeer__body">
+                            <div class="reindeer__foot reindeer__foot--front">
+                                <div class="reindeer__foot-inner"></div>
+                            </div>
+                            <div
+                                class="reindeer__foot reindeer__foot--front reindeer__foot--inside"
+                            >
+                                <div class="reindeer__foot-inner"></div>
+                            </div>
+                            <div class="reindeer__foot reindeer__foot--back">
+                                <div class="reindeer__foot-inner"></div>
+                            </div>
+                            <div
+                                class="reindeer__foot reindeer__foot--back reindeer__foot--inside"
+                            >
+                                <div class="reindeer__foot-inner"></div>
+                            </div>
+                            <div class="reindeer__tail"></div>
+                            <div class="reindeer__spots"></div>
+                        </div>
+                    </div>
+                    <div class="particles"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error-overlay"></div>
+
+        <!-- NOTE: plugin lives in christmas/, SDK is at the repo root -->
+        <script src="../plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // ---------------------------------------------------------------
+                // Config schema describes what the host should provide:
+                //
+                //   config.scale          (number, default 1) - overall size
+                //                          multiplier for plow and santa
+                //   config.snow_intensity (number 0-1, default 0.5) - how heavy
+                //                          the snowfall is (flake count and
+                //                          drift build-up rate)
+                //   config.drift_height   (number, default 4) - maximum drift
+                //                          accumulation above the base, as a
+                //                          percentage of the screen height
+                //   config.snow_base      (number, default 0) - permanent snow
+                //                          layer height as a percentage of the
+                //                          screen height; the plow rides on
+                //                          top of it and never clears it
+                //   config.plow_interval  (number, default 30) - seconds
+                //                          between plow runs
+                //   config.plow_duration  (number, default 5) - seconds the
+                //                          plow takes to cross the screen
+                //   config.santa_interval (number, default 15) - seconds
+                //                          between santa fly-bys
+                //   config.santa_duration (number, default 4) - seconds santa
+                //                          takes to cross the screen
+                //   config.show_plow      (boolean, default true)
+                //   config.show_santa     (boolean, default true)
+                // ---------------------------------------------------------------
+
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        scale: {
+                            type: 'number',
+                            title: 'Scale',
+                            description:
+                                'Overall size multiplier for the plow and santa (0.25 - 3).',
+                            default: 1,
+                        },
+                        snow_intensity: {
+                            type: 'number',
+                            title: 'Snow Intensity',
+                            description:
+                                'Snowfall heaviness, 0 (none) to 1 (blizzard).',
+                            default: 0.5,
+                        },
+                        drift_height: {
+                            type: 'number',
+                            title: 'Drift Height (%)',
+                            description:
+                                'Maximum snow drift accumulation above the base, as a percentage of the screen height (2 - 30).',
+                            default: 4,
+                        },
+                        snow_base: {
+                            type: 'number',
+                            title: 'Snow Base (%)',
+                            description:
+                                'Permanent snow layer height as a percentage of the screen height. The plow sits on top of it and never clears it (0 - 20).',
+                            default: 0,
+                        },
+                        plow_interval: {
+                            type: 'number',
+                            title: 'Plow Interval (seconds)',
+                            description:
+                                'How often the snow plow clears the drift (5 - 3600).',
+                            default: 30,
+                        },
+                        plow_duration: {
+                            type: 'number',
+                            title: 'Plow Duration (seconds)',
+                            description:
+                                'How long the plow takes to cross the screen (2 - 60).',
+                            default: 5,
+                        },
+                        santa_interval: {
+                            type: 'number',
+                            title: 'Santa Interval (seconds)',
+                            description:
+                                'How often santa flies across the screen (5 - 3600).',
+                            default: 15,
+                        },
+                        santa_duration: {
+                            type: 'number',
+                            title: 'Santa Flight Duration (seconds)',
+                            description:
+                                'How long santa takes to cross the screen (2 - 60).',
+                            default: 4,
+                        },
+                        show_plow: {
+                            type: 'boolean',
+                            title: 'Show Snow Plow',
+                            description:
+                                'Periodically clear the snow drift with the plow.',
+                            default: true,
+                        },
+                        show_santa: {
+                            type: 'boolean',
+                            title: 'Show Santa',
+                            description:
+                                'Display santa flying across the screen.',
+                            default: true,
+                        },
+                    },
+                };
+
+                // Native (unscaled) sizes of the CSS art pieces, in pixels
+                var PLOW_NATIVE_W = 260;
+                var SANTA_NATIVE_W = 295;
+                var SANTA_NATIVE_H = 185;
+
+                // Target size as a fraction of the larger viewport dimension
+                var PLOW_FRACTION = 0.17;
+                var SANTA_FRACTION = 0.24;
+
+                var COL_W = 4; // Drift heightfield column width (css px)
+                var MAX_DPR = 2;
+                var RESIZE_DEBOUNCE_MS = 250;
+
+                var activeConfig = {
+                    scale: 1,
+                    snowIntensity: 0.5,
+                    driftHeight: 4,
+                    snowBase: 0,
+                    plowInterval: 30,
+                    plowDuration: 5,
+                    santaInterval: 15,
+                    santaDuration: 4,
+                    showPlow: true,
+                    showSanta: true,
+                };
+
+                var playing = false;
+                var rafId = null;
+                var lastFrameTime = null;
+                var santaTimer = null;
+                var plowTimer = null;
+                var resizeTimer = null;
+
+                var canvas = document.getElementById('snow-canvas');
+                var plowEl = document.getElementById('plow');
+                var hopperSnowEl = document.getElementById('plow-hopper-snow');
+                var santaFlight = document.getElementById('santa-flight');
+                var ctx = null;
+
+                var viewW = 0;
+                var viewH = 0;
+                var flakes = [];
+                var drift = []; // Snow height per column, css px
+                var driftNoise = []; // Per-column accumulation variation
+                var maxDrift = 60; // Max accumulation above the base, css px
+                var basePx = 0; // Permanent snow base layer, css px
+                var flakeSprite = null;
+
+                var plowScale = 1;
+                var santaScale = 1;
+
+                // Plow run state
+                var plowRunning = false;
+                var plowElapsed = 0;
+                var plowLoad = 0; // Collected snow area, css px^2
+                var plowLastCol = -1;
+
+                var plugin = SignagePlugin.create({
+                    plugin: {
+                        name: 'christmas-overlay',
+                        version: '1.0.0',
+                    },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: false,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (payload) {
+                        var config = payload.config || {};
+
+                        activeConfig.scale = clampNumber(
+                            config.scale,
+                            0.25,
+                            3,
+                            1,
+                        );
+                        activeConfig.snowIntensity = clampNumber(
+                            config.snow_intensity,
+                            0,
+                            1,
+                            0.5,
+                        );
+                        activeConfig.driftHeight = clampNumber(
+                            config.drift_height,
+                            2,
+                            30,
+                            4,
+                        );
+                        activeConfig.snowBase = clampNumber(
+                            config.snow_base,
+                            0,
+                            20,
+                            0,
+                        );
+                        activeConfig.plowInterval = clampNumber(
+                            config.plow_interval,
+                            5,
+                            3600,
+                            30,
+                        );
+                        activeConfig.plowDuration = clampNumber(
+                            config.plow_duration,
+                            2,
+                            60,
+                            5,
+                        );
+                        activeConfig.santaInterval = clampNumber(
+                            config.santa_interval,
+                            5,
+                            3600,
+                            15,
+                        );
+                        activeConfig.santaDuration = clampNumber(
+                            config.santa_duration,
+                            2,
+                            60,
+                            4,
+                        );
+                        activeConfig.showPlow = readBoolean(
+                            config.show_plow,
+                            true,
+                        );
+                        activeConfig.showSanta = readBoolean(
+                            config.show_santa,
+                            true,
+                        );
+
+                        applyConfig();
+                        plugin.ready();
+                    },
+
+                    onPlay: function () {
+                        playing = true;
+                        // Unpause all CSS animations
+                        document.body.className = 'playing';
+                        startLoop();
+                        scheduleSanta(true);
+                        schedulePlow();
+                    },
+                });
+
+                if (!canvas || !plowEl || !santaFlight) {
+                    plugin.error({
+                        code: 'MISSING_ELEMENT',
+                        message:
+                            'One or more stage elements are missing from the DOM.',
+                        fatal: true,
+                    });
+                    showError('Internal error: missing stage elements');
+                    return;
+                }
+
+                ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    plugin.error({
+                        code: 'CANVAS_UNAVAILABLE',
+                        message: 'Could not create a 2D canvas context.',
+                        fatal: true,
+                    });
+                    showError('Canvas rendering unavailable');
+                    return;
+                }
+
+                // ---------------------------------------------------------------
+                // Configuration / sizing
+                // ---------------------------------------------------------------
+
+                /**
+                 * Apply the active configuration: element visibility, scale
+                 * variables, canvas sizing and the fly-by timers.
+                 */
+                function applyConfig() {
+                    santaFlight.style.display = activeConfig.showSanta
+                        ? ''
+                        : 'none';
+
+                    updateScales();
+                    resizeCanvas();
+                    rebuildFlakes();
+
+                    if (!activeConfig.showPlow) {
+                        cancelPlow();
+                    }
+
+                    if (playing) {
+                        scheduleSanta(false);
+                        schedulePlow();
+                    }
+                }
+
+                /**
+                 * Recompute the scale factors so the plow and santa sizes are
+                 * a fixed fraction of the larger viewport dimension, along
+                 * with the maximum drift height.
+                 */
+                function updateScales() {
+                    var vmax = Math.max(window.innerWidth, window.innerHeight);
+                    var root = document.documentElement.style;
+
+                    plowScale =
+                        (vmax * PLOW_FRACTION * activeConfig.scale) /
+                        PLOW_NATIVE_W;
+                    santaScale =
+                        (vmax * SANTA_FRACTION * activeConfig.scale) /
+                        SANTA_NATIVE_W;
+
+                    root.setProperty('--plow-scale', String(plowScale));
+                    root.setProperty('--santa-scale', String(santaScale));
+                    // Fly-in start position: fully off the left screen edge
+                    root.setProperty(
+                        '--santa-off',
+                        '-' +
+                            Math.ceil(SANTA_NATIVE_W * santaScale + 80) +
+                            'px',
+                    );
+
+                    maxDrift =
+                        (window.innerHeight * activeConfig.driftHeight) / 100;
+                    basePx = Math.round(
+                        (window.innerHeight * activeConfig.snowBase) / 100,
+                    );
+                    // The plow rides on top of the permanent base layer
+                    plowEl.style.bottom = basePx + 'px';
+                }
+
+                /**
+                 * Size the canvas to the viewport (device-pixel aware) and
+                 * resample the drift heightfield onto the new column count.
+                 */
+                function resizeCanvas() {
+                    var dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+                    viewW = window.innerWidth;
+                    viewH = window.innerHeight;
+                    canvas.width = Math.round(viewW * dpr);
+                    canvas.height = Math.round(viewH * dpr);
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                    var cols = Math.ceil(viewW / COL_W) + 1;
+                    var next = [];
+                    var noise = [];
+                    var i;
+                    for (i = 0; i < cols; i++) {
+                        var srcIndex = drift.length
+                            ? Math.min(
+                                  drift.length - 1,
+                                  Math.round((i * drift.length) / cols),
+                              )
+                            : -1;
+                        next.push(srcIndex >= 0 ? drift[srcIndex] : basePx);
+                        noise.push(0.7 + Math.random() * 0.6);
+                    }
+                    drift = next;
+                    driftNoise = noise;
+                }
+
+                /**
+                 * Rebuild the falling flake set for the current viewport size
+                 * and snow intensity.
+                 */
+                function rebuildFlakes() {
+                    var count = Math.round(
+                        ((viewW * viewH) / 16000) *
+                            (0.3 + 1.4 * activeConfig.snowIntensity),
+                    );
+                    count = Math.max(
+                        activeConfig.snowIntensity > 0 ? 15 : 0,
+                        Math.min(500, count),
+                    );
+
+                    flakes = [];
+                    var i;
+                    for (i = 0; i < count; i++) {
+                        var flake = makeFlake();
+                        // Spread the initial flakes over the whole screen so
+                        // snow is falling everywhere from the first frame
+                        flake.y = Math.random() * viewH;
+                        flakes.push(flake);
+                    }
+
+                    flakeSprite = makeFlakeSprite();
+                }
+
+                /**
+                 * Create one snowflake with randomised size, speed, sway and
+                 * opacity (matching the reference effect's parameters).
+                 *
+                 * @returns {object}
+                 */
+                function makeFlake() {
+                    var sizeFactor = Math.max(
+                        0.7,
+                        Math.max(window.innerWidth, window.innerHeight) / 1600,
+                    );
+                    return {
+                        baseX: Math.random() * viewW,
+                        y: -Math.random() * viewH * 0.2,
+                        r: (Math.random() * 2.5 + 1) * sizeFactor,
+                        speed: (40 + Math.random() * 100) * sizeFactor,
+                        amp: Math.random() * 30 + 5,
+                        phase: Math.random() * 1000,
+                        alpha: Math.random() * 0.7 + 0.3,
+                    };
+                }
+
+                /**
+                 * Pre-render a soft glowing flake sprite so flakes can be
+                 * drawn cheaply with drawImage.
+                 *
+                 * @returns {HTMLCanvasElement}
+                 */
+                function makeFlakeSprite() {
+                    var size = 32;
+                    var sprite = document.createElement('canvas');
+                    sprite.width = size;
+                    sprite.height = size;
+                    var sctx = sprite.getContext('2d');
+                    var half = size / 2;
+                    var gradient = sctx.createRadialGradient(
+                        half,
+                        half,
+                        0,
+                        half,
+                        half,
+                        half,
+                    );
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.9)');
+                    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    sctx.fillStyle = gradient;
+                    sctx.fillRect(0, 0, size, size);
+                    return sprite;
+                }
+
+                // ---------------------------------------------------------------
+                // Simulation
+                // ---------------------------------------------------------------
+
+                /**
+                 * Advance the whole simulation by dt seconds: falling flakes,
+                 * ambient drift growth and the plow run.
+                 *
+                 * @param {number} dt - Time step in seconds
+                 */
+                function stepSim(dt) {
+                    updatePlow(dt);
+                    updateDrift(dt);
+                    updateFlakes(dt);
+                }
+
+                /**
+                 * Ambient drift accumulation and smoothing. The base rate is
+                 * tied to the plow interval so the drift approaches its
+                 * maximum height over roughly one plow cycle.
+                 *
+                 * @param {number} dt - Time step in seconds
+                 */
+                function updateDrift(dt) {
+                    var rate =
+                        activeConfig.snowIntensity <= 0
+                            ? 0
+                            : ((maxDrift / (activeConfig.plowInterval * 1.15)) *
+                                  (0.4 + 1.2 * activeConfig.snowIntensity)) /
+                              1;
+                    var i;
+                    var count = drift.length;
+
+                    for (i = 0; i < count; i++) {
+                        if (rate > 0) {
+                            drift[i] += rate * dt * driftNoise[i];
+                        }
+                        if (drift[i] > basePx + maxDrift) {
+                            drift[i] = basePx + maxDrift;
+                        }
+                        if (drift[i] < basePx) {
+                            drift[i] = basePx;
+                        }
+                    }
+
+                    // Light relaxation pass keeps the surface looking like a
+                    // wind-smoothed drift rather than a bar graph
+                    for (i = 1; i < count - 1; i++) {
+                        var average = (drift[i - 1] + drift[i + 1]) / 2;
+                        drift[i] += (average - drift[i]) * 0.05;
+                    }
+                }
+
+                /**
+                 * Move the falling flakes; a flake that reaches the drift
+                 * surface deposits a small bump of snow and respawns at the
+                 * top of the screen.
+                 *
+                 * @param {number} dt - Time step in seconds
+                 */
+                function updateFlakes(dt) {
+                    var i;
+                    for (i = 0; i < flakes.length; i++) {
+                        var flake = flakes[i];
+                        flake.y += flake.speed * dt;
+                        flake.x =
+                            flake.baseX +
+                            Math.sin((flake.y + flake.phase) * 0.02) *
+                                flake.amp;
+
+                        var col = columnAt(flake.x);
+                        var surface = viewH - drift[col];
+                        if (flake.y + flake.r >= surface) {
+                            depositSnow(col, flake.r);
+                            resetFlake(flake);
+                        }
+                    }
+                }
+
+                /**
+                 * Add a landed flake's snow to the drift, spread over a few
+                 * columns for a rounded bump.
+                 *
+                 * @param {number} col - Column index the flake landed in
+                 * @param {number} r - Flake radius
+                 */
+                function depositSnow(col, r) {
+                    var bump = r * 1.5;
+                    var weights = [0.15, 0.25, 0.2, 0.25, 0.15];
+                    var i;
+                    for (i = 0; i < weights.length; i++) {
+                        var target = col - 2 + i;
+                        if (target < 0 || target >= drift.length) {
+                            continue;
+                        }
+                        drift[target] += bump * weights[i];
+                        if (drift[target] > basePx + maxDrift) {
+                            drift[target] = basePx + maxDrift;
+                        }
+                    }
+                }
+
+                /**
+                 * Respawn a flake above the top of the screen.
+                 */
+                function resetFlake(flake) {
+                    flake.baseX = Math.random() * viewW;
+                    flake.y = -flake.r - Math.random() * viewH * 0.1;
+                    flake.phase = Math.random() * 1000;
+                    flake.alpha = Math.random() * 0.7 + 0.3;
+                }
+
+                /**
+                 * Clamp an x position to a drift column index.
+                 *
+                 * @param {number} x
+                 * @returns {number}
+                 */
+                function columnAt(x) {
+                    var col = Math.floor(x / COL_W);
+                    if (col < 0) {
+                        return 0;
+                    }
+                    if (col >= drift.length) {
+                        return drift.length - 1;
+                    }
+                    return col;
+                }
+
+                // ---------------------------------------------------------------
+                // Plow run
+                // ---------------------------------------------------------------
+
+                /**
+                 * Kick off a plow run if one is not already in progress.
+                 */
+                function startPlow() {
+                    if (
+                        !activeConfig.showPlow ||
+                        plowRunning ||
+                        !playing ||
+                        document.hidden
+                    ) {
+                        return;
+                    }
+                    plowRunning = true;
+                    plowElapsed = 0;
+                    plowLoad = 0;
+                    plowLastCol = -1;
+                    plowEl.className = 'running';
+                }
+
+                /**
+                 * Abort any in-progress plow run (config change / resize).
+                 */
+                function cancelPlow() {
+                    plowRunning = false;
+                    plowLoad = 0;
+                    plowEl.className = '';
+                    hopperSnowEl.style.transform = '';
+                }
+
+                /**
+                 * Advance the plow across the screen, collecting every drift
+                 * column its blade front passes into the blade pile.
+                 *
+                 * @param {number} dt - Time step in seconds
+                 */
+                function updatePlow(dt) {
+                    if (!plowRunning) {
+                        return;
+                    }
+
+                    plowElapsed += dt;
+                    var progress = plowElapsed / activeConfig.plowDuration;
+                    var plowWidth = PLOW_NATIVE_W * plowScale;
+                    var travel = viewW + plowWidth + 320 * plowScale;
+                    var x = -plowWidth + progress * travel;
+
+                    if (progress >= 1) {
+                        cancelPlow();
+                        return;
+                    }
+
+                    plowEl.style.transform =
+                        'translateX(' + Math.round(x) + 'px)';
+
+                    // Collect every column the blade front has passed
+                    var bladeFront = x + plowWidth;
+                    var targetCol = Math.floor(bladeFront / COL_W);
+                    if (targetCol >= drift.length) {
+                        targetCol = drift.length - 1;
+                    }
+                    var c;
+                    for (c = plowLastCol + 1; c <= targetCol; c++) {
+                        if (c < 0) {
+                            continue;
+                        }
+                        // The blade clears down to the permanent base layer
+                        if (drift[c] > basePx) {
+                            plowLoad += (drift[c] - basePx) * COL_W;
+                            drift[c] = basePx;
+                        }
+                    }
+                    if (targetCol > plowLastCol) {
+                        plowLastCol = targetCol;
+                    }
+
+                    // Fill the hopper's snow load as the drift is collected
+                    hopperSnowEl.style.transform =
+                        'scaleY(' + (0.3 + 1.5 * pileFraction()) + ')';
+                }
+
+                /**
+                 * Height cap for the pile pushed in front of the blade.
+                 *
+                 * @returns {number}
+                 */
+                function pileMaxHeight() {
+                    return Math.min(maxDrift * 1.6, 70 * plowScale);
+                }
+
+                /**
+                 * How full the plow is, 0-1, saturating as the collected
+                 * snow area grows.
+                 *
+                 * @returns {number}
+                 */
+                function pileFraction() {
+                    var maxHeight = pileMaxHeight();
+                    return 1 - Math.exp(-plowLoad / (maxHeight * 220 || 1));
+                }
+
+                /**
+                 * Current x position of the plow blade's front edge, in css
+                 * pixels (only meaningful while a run is active).
+                 *
+                 * @returns {number}
+                 */
+                function plowBladeFront() {
+                    var plowWidth = PLOW_NATIVE_W * plowScale;
+                    var travel = viewW + plowWidth + 320 * plowScale;
+                    var progress = plowElapsed / activeConfig.plowDuration;
+                    return -plowWidth + progress * travel + plowWidth;
+                }
+
+                // ---------------------------------------------------------------
+                // Rendering
+                // ---------------------------------------------------------------
+
+                /**
+                 * Draw the drift, the plow's growing pile and the falling
+                 * flakes.
+                 */
+                function render() {
+                    ctx.clearRect(0, 0, viewW, viewH);
+
+                    // Ground drift
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                    ctx.beginPath();
+                    ctx.moveTo(0, viewH);
+                    var i;
+                    for (i = 0; i < drift.length; i++) {
+                        ctx.lineTo(i * COL_W, viewH - drift[i]);
+                    }
+                    ctx.lineTo(viewW, viewH);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Pile of collected snow in front of the plow blade
+                    if (plowRunning && plowLoad > 0) {
+                        var pileH = pileMaxHeight() * pileFraction();
+                        var pileW = Math.min(
+                            300 * plowScale,
+                            30 + plowLoad / (pileH > 1 ? pileH : 1) / 1.4,
+                        );
+                        var front = plowBladeFront();
+                        ctx.beginPath();
+                        ctx.ellipse(
+                            front + pileW * 0.35,
+                            viewH - basePx,
+                            pileW / 2,
+                            pileH,
+                            0,
+                            Math.PI,
+                            Math.PI * 2,
+                        );
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+
+                    // Falling flakes
+                    for (i = 0; i < flakes.length; i++) {
+                        var flake = flakes[i];
+                        ctx.globalAlpha = flake.alpha;
+                        ctx.drawImage(
+                            flakeSprite,
+                            flake.x - flake.r * 2,
+                            flake.y - flake.r * 2,
+                            flake.r * 4,
+                            flake.r * 4,
+                        );
+                    }
+                    ctx.globalAlpha = 1;
+                }
+
+                // ---------------------------------------------------------------
+                // Animation loop
+                // ---------------------------------------------------------------
+
+                function frame(now) {
+                    rafId = null;
+                    if (!playing || document.hidden) {
+                        return;
+                    }
+                    var dt;
+                    if (lastFrameTime === null) {
+                        dt = 1 / 60;
+                    } else {
+                        dt = Math.min(0.1, (now - lastFrameTime) / 1000);
+                    }
+                    lastFrameTime = now;
+
+                    stepSim(dt);
+                    render();
+                    rafId = window.requestAnimationFrame(frame);
+                }
+
+                function startLoop() {
+                    if (rafId === null) {
+                        lastFrameTime = null;
+                        rafId = window.requestAnimationFrame(frame);
+                    }
+                }
+
+                function stopLoop() {
+                    if (rafId !== null) {
+                        window.cancelAnimationFrame(rafId);
+                        rafId = null;
+                    }
+                }
+
+                document.addEventListener('visibilitychange', function () {
+                    if (document.hidden) {
+                        stopLoop();
+                    } else if (playing) {
+                        startLoop();
+                    }
+                });
+
+                // ---------------------------------------------------------------
+                // Timers - plow runs and santa fly-bys
+                // ---------------------------------------------------------------
+
+                /**
+                 * (Re)start the plow timer. The first run happens one full
+                 * interval after play so the drift has time to build.
+                 */
+                function schedulePlow() {
+                    if (plowTimer !== null) {
+                        clearInterval(plowTimer);
+                        plowTimer = null;
+                    }
+                    if (!activeConfig.showPlow) {
+                        return;
+                    }
+                    plowTimer = setInterval(
+                        startPlow,
+                        activeConfig.plowInterval * 1000,
+                    );
+                }
+
+                /**
+                 * (Re)start the santa fly-by timer.
+                 *
+                 * @param {boolean} immediate - Launch a fly-by right away
+                 */
+                function scheduleSanta(immediate) {
+                    if (santaTimer !== null) {
+                        clearInterval(santaTimer);
+                        santaTimer = null;
+                    }
+                    if (!activeConfig.showSanta) {
+                        return;
+                    }
+                    if (immediate) {
+                        launchSanta();
+                    }
+                    santaTimer = setInterval(
+                        launchSanta,
+                        activeConfig.santaInterval * 1000,
+                    );
+                }
+
+                /**
+                 * Fly santa across the screen at a random height within the
+                 * middle 50% of the viewport.
+                 */
+                function launchSanta() {
+                    if (!activeConfig.showSanta || document.hidden) {
+                        return;
+                    }
+                    // Skip if a fly-by is still in progress
+                    if (santaFlight.className.indexOf('flying') !== -1) {
+                        return;
+                    }
+
+                    var height = SANTA_NATIVE_H * santaScale;
+                    var viewHeight = window.innerHeight;
+                    var centre = viewHeight * (0.25 + Math.random() * 0.5);
+                    var top = Math.round(centre - height / 2);
+                    top = Math.max(
+                        0,
+                        Math.min(viewHeight - Math.ceil(height), top),
+                    );
+
+                    santaFlight.style.top = top + 'px';
+                    santaFlight.style.animationDuration =
+                        activeConfig.santaDuration + 's';
+                    santaFlight.className = 'flying';
+                }
+
+                santaFlight.addEventListener('animationend', function (event) {
+                    // Descendant animation events bubble here too - only the
+                    // flight itself should reset the element
+                    if (event.animationName !== 'santa-fly') {
+                        return;
+                    }
+                    // Reset so the next launch restarts the animation
+                    santaFlight.className = '';
+                });
+
+                // ---------------------------------------------------------------
+                // Resize handling
+                // ---------------------------------------------------------------
+
+                window.addEventListener('resize', function () {
+                    if (resizeTimer !== null) {
+                        clearTimeout(resizeTimer);
+                    }
+                    resizeTimer = setTimeout(function () {
+                        resizeTimer = null;
+                        updateScales();
+                        resizeCanvas();
+                        rebuildFlakes();
+                        if (plowRunning) {
+                            cancelPlow();
+                        }
+                        render();
+                    }, RESIZE_DEBOUNCE_MS);
+                });
+
+                // Size everything immediately so the overlay looks right even
+                // before the first config arrives
+                updateScales();
+                resizeCanvas();
+                rebuildFlakes();
+
+                // ---------------------------------------------------------------
+                // Helpers
+                // ---------------------------------------------------------------
+
+                /**
+                 * Clamp a numeric config value, falling back when missing or
+                 * not a finite number.
+                 *
+                 * @param {*} value - Raw config value
+                 * @param {number} min - Minimum allowed value
+                 * @param {number} max - Maximum allowed value
+                 * @param {number} fallback - Default when invalid
+                 * @returns {number}
+                 */
+                function clampNumber(value, min, max, fallback) {
+                    if (typeof value !== 'number' || !isFinite(value)) {
+                        return fallback;
+                    }
+                    return Math.max(min, Math.min(max, value));
+                }
+
+                /**
+                 * Read an optional boolean config value.
+                 *
+                 * @param {*} value - Raw config value
+                 * @param {boolean} fallback - Default when undefined
+                 * @returns {boolean}
+                 */
+                function readBoolean(value, fallback) {
+                    return value !== undefined ? !!value : fallback;
+                }
+
+                /**
+                 * Display an error message overlay.
+                 */
+                function showError(message) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = message;
+                        overlay.style.display = 'flex';
+                    }
+                }
+            })();
+        </script>
+    </body>
+</html>

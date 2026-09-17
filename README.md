@@ -27,6 +27,7 @@ instagram.html     Instagram embed plugin template
 news-ticker.html   Scrolling RSS news ticker plugin template
 rain/rain.html     Transparent rain-on-glass overlay plugin template
 halloween/halloween.html   Transparent Halloween decorations overlay plugin template
+christmas/christmas.html   Transparent Christmas snow/plow/santa overlay plugin template
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -482,6 +483,59 @@ If `witch_duration` is longer than `witch_interval`, in-progress fly-bys are
 never interrupted; the next launch simply waits for the following interval.
 
 **Error codes:** `MISSING_ELEMENT`
+
+---
+
+### Christmas Overlay (`christmas/christmas.html`)
+
+A fullscreen, fully transparent winter overlay designed to sit in an iframe
+above other signage content:
+
+- **Falling snow** rendered on a canvas - soft glowing flakes with randomised
+  size, speed, sway and opacity - that **accumulates into a ground drift**
+  along the bottom of the screen. The drift's build-up rate is tied to the
+  plow interval so it approaches its maximum height over roughly one plow
+  cycle.
+- A **snow plow** (CSS art truck with a rear dump bed, spinning wheels and a
+  front blade) that drives across the bottom of the screen at a configurable
+  interval (default every 30 seconds, taking 5 seconds). Its blade collects
+  the drift as it passes - a pushed pile grows in front of the blade and the
+  hopper visibly fills with snow - leaving cleared ground behind it for the
+  snow to build up again.
+- **Santa's sleigh** (CSS art with animated reindeer, harness and sparkle
+  trail) that flies across the screen at a configurable interval, each time
+  at a random height within the middle 50% of the screen - exactly like the
+  Halloween witch.
+
+The plow and santa are scaled from the **larger** viewport dimension (vmax)
+so sizes stay proportional in both orientations. All animation is paused
+until the host sends `play`.
+
+The host should embed the iframe with `allowtransparency` and
+`pointer-events: none` so clicks pass through to the page underneath.
+
+**Capabilities:** Requires play signal, cannot finish (runs forever), dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `scale` | number | `1` | Overall size multiplier for the plow and santa (0.25 - 3) |
+| `snow_intensity` | number | `0.5` | Snowfall heaviness, `0` (none) to `1` (blizzard) |
+| `drift_height` | number | `4` | Maximum drift accumulation above the base, as % of screen height (2 - 30) |
+| `snow_base` | number | `0` | Permanent snow layer as % of screen height; the plow sits on top of it and never clears it (0 - 20) |
+| `plow_interval` | number | `30` | Seconds between plow runs (5 - 3600) |
+| `plow_duration` | number | `5` | Seconds the plow takes to cross the screen (2 - 60) |
+| `santa_interval` | number | `15` | Seconds between santa fly-bys (5 - 3600) |
+| `santa_duration` | number | `4` | Seconds santa takes to cross the screen (2 - 60) |
+| `show_plow` | boolean | `true` | Periodically clear the drift with the plow |
+| `show_santa` | boolean | `true` | Display santa flying across the screen |
+
+The first plow run happens one full interval after `play` so the drift has
+time to build. In-progress runs and fly-bys are never interrupted.
+
+**Error codes:** `MISSING_ELEMENT`, `CANVAS_UNAVAILABLE`
 
 ---
 
