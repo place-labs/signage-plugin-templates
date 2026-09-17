@@ -15,14 +15,15 @@
 
             Every run interval one runner crosses the bottom of the screen,
             randomly chosen between a hopping bunny and a rolling easter egg
-            (two egg styles). The CSS art pieces are adapted from community
-            CodePen examples supplied with the request: the bunny's hop cycle
-            keeps its vertical bounce, rotation, foot kick and ground shadow
-            but drops the original horizontal shuffle (the crossing supplies
-            the forward motion), and the eggs roll - spinning at a rate
+            (two egg styles). The eggs are adapted from a community CodePen
+            example supplied with the request, but roll - spinning at a rate
             matched to the crossing speed, with a bob that keeps the egg's
             shell in contact with the bottom edge - instead of the original
-            in-place wobble.
+            in-place wobble. The bunny is drawn from dedicated elements
+            (eared, footed, shaded fur) with an eased hop arc, ears that
+            trail the jump, a foot kick while airborne, and a gait layer
+            that holds it still on the ground between jumps (the crossing
+            supplies the forward motion mid-leap).
 
             Art is authored at fixed sizes and scaled from the larger
             viewport dimension (vmax) so sizing tracks the screen dimensions.
@@ -177,8 +178,17 @@
                 bottom: 0;
                 width: 5em;
                 height: 3em;
-                /* Shaded fur so the bunny reads on white content: highlight
-                   along the back fading to a warm grey underside */
+                transform: translate(0, 0);
+                animation: bunny-hop 1s infinite;
+                z-index: 1;
+                /* Soft ambient shadow lifts the silhouette off pale content */
+                filter: drop-shadow(0 0.1em 0.18em var(--bunny-soft-shadow));
+            }
+            /* Shaded fur so the bunny reads on white content: highlight
+               along the back fading to a warm grey underside */
+            .rabbit-body {
+                position: absolute;
+                inset: 0;
                 background: linear-gradient(
                     160deg,
                     var(--bunny-white) 40%,
@@ -186,49 +196,183 @@
                     #ddd0c6 100%
                 );
                 border-radius: 70% 90% 60% 50%;
-                transform: translate(0, 0);
-                animation: bunny-hop 1s infinite;
-                z-index: 1;
-                /* Soft ambient shadow lifts the silhouette off pale content */
-                filter: drop-shadow(0 0.1em 0.18em var(--bunny-soft-shadow));
+                z-index: 2;
             }
-            /* Tail, eye and feet - a shade darker than the body so the
-               limbs stay distinct against it and against white content */
-            .rabbit::before {
-                content: '';
+            /* Ears - a near pair with pink inners, anchored at the head;
+               they trail back on the way up and flick on the way down */
+            .rabbit-ear {
                 position: absolute;
-                width: 1em;
-                height: 1em;
-                background: var(--bunny-fur-shade);
-                border-radius: 100%;
-                top: 0.5em;
-                left: -0.3em;
-                box-shadow:
-                    4em 0.4em 0 -0.35em var(--bunny-eye),
-                    0.5em 1em 0 var(--bunny-fur-shade),
-                    4em 1em 0 -0.3em var(--bunny-fur-shade),
-                    4em 1em 0 -0.3em var(--bunny-fur-shade),
-                    4em 1em 0 -0.4em var(--bunny-fur-shade);
-                animation: bunny-kick 1s infinite linear;
-            }
-            /* Ears */
-            .rabbit::after {
-                content: '';
-                position: absolute;
-                width: 0.75em;
+                width: 0.72em;
                 height: 2em;
+                border-radius: 50% 50% 45% 45% / 90% 90% 12% 12%;
+                transform-origin: 50% 95%;
+            }
+            .rabbit-ear::before {
+                content: '';
+                position: absolute;
+                left: 0.16em;
+                top: 0.24em;
+                width: 0.4em;
+                height: 1.3em;
+                border-radius: inherit;
+                background: #f3cfc6;
+            }
+            .rabbit-ear-front {
+                right: 0.95em;
+                top: -1.55em;
                 background: linear-gradient(
                     105deg,
-                    var(--bunny-white) 35%,
-                    #e6dbd3 100%
+                    var(--bunny-white) 40%,
+                    #e9ded7 100%
                 );
-                border-radius: 50% 100% 0 0;
-                transform: rotate(-30deg);
-                right: 1em;
-                top: -1em;
-                border-top: 1px solid var(--bunny-ear-edge);
-                border-left: 1px solid var(--bunny-ear-edge);
-                box-shadow: -0.5em 0 0 -0.1em var(--bunny-fur-shade);
+                transform: rotate(-22deg);
+                animation: bunny-ear-front 1s infinite ease-in-out;
+                z-index: 1;
+            }
+            .rabbit-ear-back {
+                right: 1.55em;
+                top: -1.45em;
+                background: linear-gradient(105deg, #f7efe9 40%, #ddd0c6 100%);
+                transform: rotate(-40deg);
+                animation: bunny-ear-back 1s infinite ease-in-out;
+                z-index: 0;
+            }
+            @keyframes bunny-ear-front {
+                0%,
+                75%,
+                100% {
+                    transform: rotate(-22deg);
+                }
+                30% {
+                    transform: rotate(-34deg);
+                }
+                55% {
+                    transform: rotate(-13deg);
+                }
+            }
+            @keyframes bunny-ear-back {
+                0%,
+                75%,
+                100% {
+                    transform: rotate(-40deg);
+                }
+                30% {
+                    transform: rotate(-52deg);
+                }
+                55% {
+                    transform: rotate(-31deg);
+                }
+            }
+            /* Tail - mostly tucked behind the body */
+            .rabbit-tail {
+                position: absolute;
+                left: -0.35em;
+                top: 0.55em;
+                width: 1em;
+                height: 1em;
+                border-radius: 50%;
+                background: radial-gradient(
+                    circle at 35% 30%,
+                    var(--bunny-white) 25%,
+                    #e7dbd2 90%
+                );
+                z-index: 1;
+            }
+            /* Folded back leg over the body, with a foot that kicks out
+               while airborne and a small front paw that tucks up */
+            .rabbit-haunch {
+                position: absolute;
+                left: 0.55em;
+                bottom: 0.08em;
+                width: 1.7em;
+                height: 1.45em;
+                border-radius: 55% 60% 50% 50%;
+                background: radial-gradient(
+                    ellipse at 35% 30%,
+                    #fbf6f2 30%,
+                    #e7dad1 85%
+                );
+                z-index: 3;
+            }
+            .rabbit-foot {
+                position: absolute;
+                background: linear-gradient(180deg, #f6efe9 20%, #e2d4ca 100%);
+                z-index: 3;
+            }
+            .rabbit-foot-back {
+                left: 0.25em;
+                bottom: 0;
+                width: 1.5em;
+                height: 0.55em;
+                border-radius: 45% 55% 50% 50% / 80% 80% 50% 50%;
+                transform-origin: 80% 40%;
+                animation: bunny-kick-back 1s infinite ease-in-out;
+            }
+            .rabbit-foot-front {
+                left: 3.35em;
+                bottom: 0;
+                width: 0.85em;
+                height: 0.45em;
+                border-radius: 50% 60% 50% 50% / 90% 90% 50% 50%;
+                transform-origin: 20% 30%;
+                animation: bunny-kick-front 1s infinite ease-in-out;
+            }
+            @keyframes bunny-kick-back {
+                0%,
+                65%,
+                100% {
+                    transform: rotate(0) translate(0, 0);
+                }
+                25% {
+                    transform: rotate(24deg) translate(-0.25em, -0.05em);
+                }
+                45% {
+                    transform: rotate(34deg) translate(-0.35em, -0.1em);
+                }
+            }
+            @keyframes bunny-kick-front {
+                0%,
+                65%,
+                100% {
+                    transform: rotate(0) translate(0, 0);
+                }
+                25% {
+                    transform: rotate(-22deg) translate(0.05em, -0.15em);
+                }
+                45% {
+                    transform: rotate(-30deg) translate(0.08em, -0.2em);
+                }
+            }
+            /* Face */
+            .rabbit-eye {
+                position: absolute;
+                right: 0.85em;
+                top: 0.85em;
+                width: 0.36em;
+                height: 0.42em;
+                border-radius: 50%;
+                background: var(--bunny-eye);
+                z-index: 4;
+            }
+            .rabbit-eye::after {
+                content: '';
+                position: absolute;
+                left: 0.07em;
+                top: 0.06em;
+                width: 0.12em;
+                height: 0.12em;
+                border-radius: 50%;
+                background: var(--bunny-white);
+            }
+            .rabbit-nose {
+                position: absolute;
+                right: 0;
+                top: 1.2em;
+                width: 0.3em;
+                height: 0.22em;
+                border-radius: 50%;
+                background: #eebbb0;
+                z-index: 4;
             }
             /* NOTE: vertical bounce only - the original keyframes also
                shuffled the bunny horizontally, but here the gait layer
@@ -372,7 +516,17 @@
             <div class="runner runner-bunny">
                 <div class="bunny-gait">
                     <div class="bunny-shadow"></div>
-                    <div class="rabbit"></div>
+                    <div class="rabbit">
+                        <div class="rabbit-ear rabbit-ear-back"></div>
+                        <div class="rabbit-ear rabbit-ear-front"></div>
+                        <div class="rabbit-tail"></div>
+                        <div class="rabbit-body"></div>
+                        <div class="rabbit-haunch"></div>
+                        <div class="rabbit-foot rabbit-foot-back"></div>
+                        <div class="rabbit-foot rabbit-foot-front"></div>
+                        <div class="rabbit-eye"></div>
+                        <div class="rabbit-nose"></div>
+                    </div>
                 </div>
             </div>
             <div class="runner runner-egg-a">
