@@ -36,9 +36,13 @@
 
                 /* Bunny palette */
                 --bunny-white: #ffffff;
+                --bunny-fur-shade: #efe5de;
                 --bunny-ear-edge: #f7f5f4;
                 --bunny-eye: #3f3334;
+                --bunny-soft-shadow: rgba(140, 112, 94, 0.45);
                 --bunny-shadow: rgba(0, 0, 0, 0.2);
+                /* Forward surge per hop - computed by JS from crossing speed */
+                --bunny-stride: 60px;
 
                 /* Egg palette */
                 --egg-shell: #fbe9e7;
@@ -117,12 +121,55 @@
                --------------------------------------------------------------- */
 
             /* The bunny rests exactly on the viewport bottom; its ground
-               shadow tucks just below the edge at rest and shows at ground
+               shadow sits behind the body at rest and shows at ground
                level while the bunny is airborne */
             .runner-bunny {
                 font-size: var(--bunny-font);
                 width: 6em;
                 height: 3em;
+            }
+            /* Horizontal gait: surges forward while airborne (0-60% of the
+               hop cycle, eased) and slides backward at exactly the crossing
+               speed while grounded (60-100%, linear), so the bunny appears
+               to stand still between jumps instead of sliding */
+            .bunny-gait {
+                position: absolute;
+                inset: 0;
+                animation: bunny-gait 1s infinite linear;
+            }
+            @keyframes bunny-gait {
+                0% {
+                    transform: translateX(0);
+                    animation-timing-function: ease-in-out;
+                }
+                60% {
+                    transform: translateX(var(--bunny-stride));
+                    animation-timing-function: linear;
+                }
+                100% {
+                    transform: translateX(0);
+                }
+            }
+            .bunny-shadow {
+                position: absolute;
+                left: 0.7em;
+                bottom: 0;
+                width: 3.5em;
+                height: 0.8em;
+                border-radius: 50%;
+                background: var(--bunny-shadow);
+                animation: bunny-shadow 1s infinite linear;
+                z-index: 0;
+            }
+            @keyframes bunny-shadow {
+                0%,
+                60%,
+                100% {
+                    transform: scaleX(1);
+                }
+                40% {
+                    transform: scaleX(0.75);
+                }
             }
             .rabbit {
                 position: absolute;
@@ -130,29 +177,38 @@
                 bottom: 0;
                 width: 5em;
                 height: 3em;
-                background: var(--bunny-white);
+                /* Shaded fur so the bunny reads on white content: highlight
+                   along the back fading to a warm grey underside */
+                background: linear-gradient(
+                    160deg,
+                    var(--bunny-white) 40%,
+                    #f5eee9 65%,
+                    #ddd0c6 100%
+                );
                 border-radius: 70% 90% 60% 50%;
-                box-shadow: -0.2em 1em 0 -0.75em var(--bunny-shadow);
                 transform: translate(0, 0);
-                animation: bunny-hop 1s infinite linear;
+                animation: bunny-hop 1s infinite;
                 z-index: 1;
+                /* Soft ambient shadow lifts the silhouette off pale content */
+                filter: drop-shadow(0 0.1em 0.18em var(--bunny-soft-shadow));
             }
-            /* Tail, eye and feet */
+            /* Tail, eye and feet - a shade darker than the body so the
+               limbs stay distinct against it and against white content */
             .rabbit::before {
                 content: '';
                 position: absolute;
                 width: 1em;
                 height: 1em;
-                background: var(--bunny-white);
+                background: var(--bunny-fur-shade);
                 border-radius: 100%;
                 top: 0.5em;
                 left: -0.3em;
                 box-shadow:
                     4em 0.4em 0 -0.35em var(--bunny-eye),
-                    0.5em 1em 0 var(--bunny-white),
-                    4em 1em 0 -0.3em var(--bunny-white),
-                    4em 1em 0 -0.3em var(--bunny-white),
-                    4em 1em 0 -0.4em var(--bunny-white);
+                    0.5em 1em 0 var(--bunny-fur-shade),
+                    4em 1em 0 -0.3em var(--bunny-fur-shade),
+                    4em 1em 0 -0.3em var(--bunny-fur-shade),
+                    4em 1em 0 -0.4em var(--bunny-fur-shade);
                 animation: bunny-kick 1s infinite linear;
             }
             /* Ears */
@@ -161,31 +217,40 @@
                 position: absolute;
                 width: 0.75em;
                 height: 2em;
-                background: var(--bunny-white);
+                background: linear-gradient(
+                    105deg,
+                    var(--bunny-white) 35%,
+                    #e6dbd3 100%
+                );
                 border-radius: 50% 100% 0 0;
                 transform: rotate(-30deg);
                 right: 1em;
                 top: -1em;
                 border-top: 1px solid var(--bunny-ear-edge);
                 border-left: 1px solid var(--bunny-ear-edge);
-                box-shadow: -0.5em 0 0 -0.1em var(--bunny-white);
+                box-shadow: -0.5em 0 0 -0.1em var(--bunny-fur-shade);
             }
             /* NOTE: vertical bounce only - the original keyframes also
-               shuffled the bunny horizontally, but here the crossing
-               animation provides the forward motion */
+               shuffled the bunny horizontally, but here the gait layer
+               provides the forward motion. Eased per segment for a smooth
+               parabolic arc: decelerating on the way up, accelerating on
+               the way down, then grounded from 60% to 100% */
             @keyframes bunny-hop {
+                0% {
+                    transform: rotate(0) translate(0, 0);
+                    animation-timing-function: ease-out;
+                }
                 20% {
                     transform: rotate(-10deg) translate(0, -2em);
-                    box-shadow: -0.2em 3em 0 -1em var(--bunny-shadow);
+                    animation-timing-function: ease-in-out;
                 }
                 40% {
                     transform: rotate(10deg) translate(0, -4em);
-                    box-shadow: -0.2em 3.25em 0 -1.1em var(--bunny-shadow);
+                    animation-timing-function: ease-in;
                 }
                 60%,
-                75% {
+                100% {
                     transform: rotate(0) translate(0, 0);
-                    box-shadow: -0.2em 1em 0 -0.75em var(--bunny-shadow);
                 }
             }
             @keyframes bunny-kick {
@@ -305,7 +370,10 @@
     <body>
         <div id="easter-run">
             <div class="runner runner-bunny">
-                <div class="rabbit"></div>
+                <div class="bunny-gait">
+                    <div class="bunny-shadow"></div>
+                    <div class="rabbit"></div>
+                </div>
             </div>
             <div class="runner runner-egg-a">
                 <div class="egg-bob">
@@ -508,6 +576,18 @@
                     root.setProperty('--bunny-font', bunnyFont + 'px');
                     root.setProperty('--egg-scale', String(eggScale));
                     root.setProperty('--easter-off', '-' + runnerOff + 'px');
+
+                    // Forward surge per hop: the bunny covers the grounded
+                    // window's worth of crossing distance (0.4s of each 1s
+                    // hop cycle) while airborne, so it can hold still on the
+                    // ground without falling behind the crossing
+                    var speed =
+                        (window.innerWidth + runnerOff) /
+                        activeConfig.runDuration;
+                    root.setProperty(
+                        '--bunny-stride',
+                        Math.round(speed * 0.4) + 'px',
+                    );
                 }
 
                 // ---------------------------------------------------------------

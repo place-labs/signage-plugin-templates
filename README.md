@@ -550,10 +550,12 @@ runner crosses the bottom of the screen - randomly chosen between a
 **hopping bunny** and a **rolling easter egg** with two styles (pastel
 stripes or pink with white dots, picked 50/50). Only one runner is on screen
 at a time. All CSS art, adapted from community CodePen examples: the bunny
-keeps its bounce, rotation, foot-kick and ground shadow while the crossing
-supplies the forward motion, and the eggs spin at a rate matched to the
-crossing speed - with a bob that keeps the shell in contact with the ground -
-so they read as rolling rather than sliding.
+keeps its bounce, rotation, foot-kick and ground shadow, softly shaded (fur
+gradient plus an ambient drop shadow) so it stays visible over white
+content, and its gait pauses on the ground between jumps - the forward
+motion happens mid-leap. The eggs spin at a rate matched to the crossing
+speed - with a bob that keeps the shell in contact with the ground - so
+they read as rolling rather than sliding.
 
 The runners are scaled from the **larger** viewport dimension (vmax) so
 sizes stay proportional in both orientations. All animation is paused until
