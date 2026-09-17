@@ -469,7 +469,7 @@ content.
 |---|---|---|---|
 | `scale` | number | `1` | Overall size multiplier for all decorations (0.25 - 3) |
 | `witch_interval` | number | `15` | Seconds between witch fly-bys (5 - 3600) |
-| `witch_duration` | number | `8` | Seconds the witch takes to cross the screen (2 - 60) |
+| `witch_duration` | number | `4` | Seconds the witch takes to cross the screen (2 - 60) |
 | `show_spider` | boolean | `true` | Display the spider in the top right corner |
 | `show_pumpkin` | boolean | `true` | Display the jack-o'-lantern in the bottom left corner |
 | `show_witch` | boolean | `true` | Display the flying witch |

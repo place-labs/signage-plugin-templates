@@ -577,7 +577,7 @@
                 animation-name: witch-fly;
                 animation-timing-function: linear;
                 animation-fill-mode: both;
-                animation-duration: 8s;
+                animation-duration: 4s;
             }
             @keyframes witch-fly {
                 from {
@@ -1172,7 +1172,7 @@
                 //                          multiplier for all decorations
                 //   config.witch_interval (number, default 15) - seconds between
                 //                          witch fly-bys
-                //   config.witch_duration (number, default 8) - seconds the witch
+                //   config.witch_duration (number, default 4) - seconds the witch
                 //                          takes to cross the screen
                 //   config.show_spider    (boolean, default true)
                 //   config.show_pumpkin   (boolean, default true)
@@ -1201,7 +1201,7 @@
                             title: 'Witch Flight Duration (seconds)',
                             description:
                                 'How long the witch takes to cross the screen (2 - 60).',
-                            default: 8,
+                            default: 4,
                         },
                         show_spider: {
                             type: 'boolean',
@@ -1235,7 +1235,7 @@
                 // Target size of each element as a fraction of the larger
                 // viewport dimension (vmax)
                 var SPIDER_FRACTION = 0.055;
-                var PUMPKIN_FRACTION = 0.28;
+                var PUMPKIN_FRACTION = 0.14;
                 var WITCH_FRACTION = 0.22;
 
                 var RESIZE_DEBOUNCE_MS = 250;
@@ -1243,7 +1243,7 @@
                 var activeConfig = {
                     scale: 1,
                     witchInterval: 15,
-                    witchDuration: 8,
+                    witchDuration: 4,
                     showSpider: true,
                     showPumpkin: true,
                     showWitch: true,
@@ -1288,7 +1288,7 @@
                             config.witch_duration,
                             2,
                             60,
-                            8,
+                            4,
                         );
                         activeConfig.showSpider = readBoolean(
                             config.show_spider,
