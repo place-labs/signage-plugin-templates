@@ -375,6 +375,14 @@ headers (both CORS-safelisted) as the refresh interval, falling back to the
 RSS `<ttl>` element, then a 5 minute default (clamped to 60s-24h). Failed
 refreshes keep the current headlines on screen and retry after 60 seconds.
 
+Config may be re-pushed to a running ticker at any time (live preview): the
+current headlines keep scrolling while the newly configured feed loads and
+are crossfaded in once it arrives, each successful (re)configuration is
+answered with `ready`, stale in-flight fetches from a superseded config are
+discarded, and an invalid re-config (e.g. missing `feed_url`) is reported
+as a non-fatal error while the current content continues. `MISSING_FEED_URL`
+is only fatal when nothing has been displayed yet.
+
 The feed is fetched directly from the browser first (optimal: no proxy hop,
 and the browser's own User-Agent satisfies feed CDNs that block programmatic
 clients); if the direct request fails - no CORS headers on the feed, or the

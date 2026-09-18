@@ -457,6 +457,11 @@
                         );
 
                         updateScales();
+                        // Keep an in-progress egg roll matched to any new
+                        // sizing or duration so it does not read as sliding
+                        if (runEl.className.indexOf('egg') !== -1) {
+                            syncEggSpin();
+                        }
                         if (playing) {
                             scheduleRuns(false);
                         }
