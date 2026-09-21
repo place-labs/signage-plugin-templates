@@ -607,10 +607,11 @@ forecast API (no key required), with three display modes:
   seven-day forecast card featuring temperature range bars and a marker for
   the current temperature.
 
-The small and medium cards render as a semi-transparent rounded panel on a
-fully transparent page, so they can overlay other signage content (embed
-with `allowtransparency` and `pointer-events: none`); their width is set in
-vmax units. Weather icons are from the react-icons sets used by
+The small and medium cards render as a semi-transparent rounded panel
+anchored to the top left of a fully transparent page, so they can overlay
+other signage content (embed with `allowtransparency` and
+`pointer-events: none`, positioning the iframe where the card should sit);
+their width is set in vmax units and the backing opacity is configurable. Weather icons are from the react-icons sets used by
 [weather-app-v2](https://github.com/danisharyanfahim/weather-app-v2) and
 the fullscreen backgrounds from
 [weather-app-using-openweathermap-api](https://github.com/kshitizrohilla/weather-app-using-openweathermap-api),
@@ -633,13 +634,14 @@ content.
 
 | Property | Type | Default | Description |
 |---|---|---|---|
-| `latitude` | number | -- | Location latitude (required) |
-| `longitude` | number | -- | Location longitude (required) |
-| `location_name` | string | `''` | Display name shown on the widget |
+| `loc_latitude` | number | -- | Location latitude (required; the `loc_` prefix keeps the pair adjacent in alphabetised config forms - `latitude` accepted as a legacy alias) |
+| `loc_longitude` | number | -- | Location longitude (required; `longitude` accepted as a legacy alias) |
+| `display_name` | string | `''` | Location name shown on the widget (`location_name` accepted as a legacy alias) |
 | `units` | string | `'metric'` | `'metric'` (°C, km/h) or `'imperial'` (°F, mph) |
 | `timezone` | string | `'auto'` | IANA timezone for displayed times, or `auto` for the location's zone |
 | `mode` | string | `'medium'` | `'small'`, `'medium'` or `'fullscreen'` |
 | `size` | number | `0` | Card width in vmax for small/medium (0 = automatic: 22 small, 44 medium) |
+| `opacity` | number | `62` | Background opacity % of the card backing and fullscreen panels (0 - 100) |
 
 **Error codes:** `MISSING_COORDS`, `FORECAST_FETCH_FAILED` (both fatal only
 before anything has been displayed)

@@ -35,8 +35,11 @@
         -->
         <style>
             :root {
-                --card-bg: rgba(36, 62, 105, 0.62);
-                --card-bg-soft: rgba(52, 76, 120, 0.45);
+                /* Alphas are driven by the opacity config (default 62%) */
+                --card-alpha: 0.62;
+                --card-soft-alpha: 0.45;
+                --card-bg: rgb(36 62 105 / var(--card-alpha));
+                --card-bg-soft: rgb(52 76 120 / var(--card-soft-alpha));
                 --text: #ffffff;
                 --text-soft: rgba(255, 255, 255, 0.72);
                 --divider: rgba(255, 255, 255, 0.16);
@@ -65,6 +68,14 @@
                     sans-serif;
                 color: var(--text);
                 -webkit-font-smoothing: antialiased;
+            }
+            /* Cards anchor to the top left (the host iframe sets where that
+               is); a small gutter keeps the drop shadow off the edge */
+            body.mode-small,
+            body.mode-medium {
+                align-items: flex-start;
+                justify-content: flex-start;
+                padding: 1vmax;
             }
 
             /* Weather icons (baked-colour SVG data URIs) */
@@ -524,9 +535,18 @@
                 // ---------------------------------------------------------------
                 // Config schema describes what the host should provide:
                 //
-                //   config.latitude      (number, required)
-                //   config.longitude     (number, required)
-                //   config.location_name (string, default '') - display name
+                //   config.loc_latitude  (number, required) - the loc_
+                //                         prefix keeps the pair adjacent in
+                //                         alphabetised config forms
+                //                         (latitude/longitude accepted as
+                //                         legacy aliases)
+                //   config.loc_longitude (number, required)
+                //   config.display_name  (string, default '') - location name
+                //                         shown on the widget (named so lat
+                //                         and lon sort next to each other in
+                //                         alphabetised config forms;
+                //                         config.location_name is accepted
+                //                         as a legacy alias)
                 //   config.units         ('metric'|'imperial', default metric)
                 //   config.timezone      (string, default 'auto') - IANA zone
                 //                         passed to open-meteo; all displayed
@@ -535,22 +555,25 @@
                 //   config.size          (number) - card width in vmax for
                 //                         small/medium modes (0 = automatic:
                 //                         22 for small, 44 for medium)
+                //   config.opacity       (number, default 62) - background
+                //                         opacity percentage of the card
+                //                         backing / fullscreen panels
                 // ---------------------------------------------------------------
 
                 var CONFIG_SCHEMA = {
                     type: 'object',
                     properties: {
-                        latitude: {
+                        loc_latitude: {
                             type: 'number',
                             title: 'Latitude',
                             description: 'Location latitude in degrees.',
                         },
-                        longitude: {
+                        loc_longitude: {
                             type: 'number',
                             title: 'Longitude',
                             description: 'Location longitude in degrees.',
                         },
-                        location_name: {
+                        display_name: {
                             type: 'string',
                             title: 'Location Name',
                             description:
@@ -586,8 +609,15 @@
                                 'Card width for small/medium modes as a percentage of the larger viewport dimension (0 = automatic).',
                             default: 0,
                         },
+                        opacity: {
+                            type: 'number',
+                            title: 'Opacity (%)',
+                            description:
+                                'Background opacity of the card backing and fullscreen panels (0 - 100).',
+                            default: 62,
+                        },
                     },
-                    required: ['latitude', 'longitude'],
+                    required: ['loc_latitude', 'loc_longitude'],
                 };
 
                 var API_BASE = 'https://api.open-meteo.com/v1/forecast';
@@ -622,6 +652,7 @@
                     timezone: 'auto',
                     mode: 'medium',
                     size: 0,
+                    opacity: 62,
                 };
 
                 var weather = null; // Latest API payload
@@ -647,8 +678,14 @@
                     onConfig: function (payload) {
                         var config = payload.config || {};
 
-                        var lat = config.latitude;
-                        var lon = config.longitude;
+                        var lat =
+                            typeof config.loc_latitude === 'number'
+                                ? config.loc_latitude
+                                : config.latitude;
+                        var lon =
+                            typeof config.loc_longitude === 'number'
+                                ? config.loc_longitude
+                                : config.longitude;
                         if (
                             typeof lat !== 'number' ||
                             !isFinite(lat) ||
@@ -661,7 +698,7 @@
                             plugin.error({
                                 code: 'MISSING_COORDS',
                                 message:
-                                    'config.latitude and config.longitude are required numbers.',
+                                    'config.loc_latitude and config.loc_longitude are required numbers.',
                                 fatal: !hasRendered,
                             });
                             if (!hasRendered) {
@@ -673,9 +710,11 @@
                         activeConfig.latitude = lat;
                         activeConfig.longitude = lon;
                         activeConfig.locationName =
-                            typeof config.location_name === 'string'
-                                ? config.location_name
-                                : '';
+                            typeof config.display_name === 'string'
+                                ? config.display_name
+                                : typeof config.location_name === 'string'
+                                  ? config.location_name
+                                  : '';
                         activeConfig.units =
                             config.units === 'imperial' ? 'imperial' : 'metric';
                         activeConfig.timezone =
@@ -689,6 +728,24 @@
                                 ? config.mode
                                 : 'medium';
                         activeConfig.size = clampNumber(config.size, 0, 100, 0);
+                        activeConfig.opacity = clampNumber(
+                            config.opacity,
+                            0,
+                            100,
+                            62,
+                        );
+
+                        // Backing opacity: the fullscreen panels keep their
+                        // softer ratio relative to the card backing
+                        var rootStyle = document.documentElement.style;
+                        rootStyle.setProperty(
+                            '--card-alpha',
+                            String(activeConfig.opacity / 100),
+                        );
+                        rootStyle.setProperty(
+                            '--card-soft-alpha',
+                            String((activeConfig.opacity / 100) * 0.73),
+                        );
 
                         document.body.className = 'mode-' + activeConfig.mode;
                         applySizing();
