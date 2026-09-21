@@ -81,12 +81,15 @@
             }
             /* Fixed label pinned to the left edge; the ticker scrolls
                underneath it. The container is transparent so passing
-               content stays visible around the arrow's sloped edges. */
+               content stays visible around the arrow's sloped edges.
+               NOTE: the label starts 2px off screen (with matching extra
+               padding) so scrolling text can never bleed through a
+               subpixel gap at the left edge. */
             #news-label {
                 position: absolute;
                 top: 0;
                 bottom: 0;
-                left: 0;
+                left: -2px;
                 z-index: 5;
                 display: flex;
                 align-items: center;
@@ -95,7 +98,7 @@
                 display: flex;
                 align-items: center;
                 height: 100%;
-                padding: 0 24vh;
+                padding: 0 24vh 0 calc(24vh + 4px);
                 background: #eb0d41;
                 color: #fff;
                 font-family:
