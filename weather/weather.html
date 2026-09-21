@@ -328,13 +328,13 @@
                 text-shadow: 0 0.05em 0.35em rgba(0, 0, 0, 0.45);
             }
             #screen-full .title .name {
-                font-size: 2.6em;
+                font-size: 3.2em;
                 font-weight: 400;
             }
             #screen-full .title .sub {
-                font-size: 1.25em;
+                font-size: 2.2em;
                 font-weight: 600;
-                margin-top: 0.15em;
+                margin-top: 0.2em;
             }
             #screen-full .panel {
                 background: var(--card-bg-soft);
@@ -377,16 +377,14 @@
                 font-weight: 700;
             }
             #daily-panel {
-                flex: 1 1 auto;
-                min-height: 0;
                 display: flex;
                 flex-direction: column;
-                justify-content: space-around;
             }
             .day-row {
                 display: flex;
                 align-items: center;
                 padding: 0.35em 0;
+                max-height: 2.8em;
             }
             .day-row + .day-row {
                 border-top: 1px solid var(--divider);
@@ -1609,7 +1607,7 @@
                         (vmax * mediumSize) / 100 / MEDIUM_EM + 'px';
                     // Height budget: the fullscreen column is ~40em tall
                     document.getElementById('screen-full').style.fontSize =
-                        Math.min(vmin / 34, window.innerHeight / 41) + 'px';
+                        Math.min(vmin / 34, window.innerHeight / 46) + 'px';
                 }
 
                 window.addEventListener('resize', function () {
