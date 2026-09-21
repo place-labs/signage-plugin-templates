@@ -1249,6 +1249,9 @@
                         );
                     }
 
+                    // Re-fit now the card has its final content height
+                    applySizing();
+
                     hasRendered = true;
                     hideError();
                     if (readyPending) {
@@ -1556,8 +1559,19 @@
                  * the viewport (fullscreen).
                  */
                 function applySizing() {
-                    var vmax = Math.max(window.innerWidth, window.innerHeight);
                     var vmin = Math.min(window.innerWidth, window.innerHeight);
+
+                    // The size config is relative to the SCREEN, not the
+                    // iframe, so the card keeps its size no matter where or
+                    // how large the host positions the iframe (fitCard then
+                    // clamps it to whatever space the iframe provides)
+                    var screenMax = Math.max(
+                        (window.screen && window.screen.width) || 0,
+                        (window.screen && window.screen.height) || 0,
+                    );
+                    var vmax =
+                        screenMax ||
+                        Math.max(window.innerWidth, window.innerHeight);
 
                     var smallSize =
                         activeConfig.size > 0
@@ -1568,13 +1582,48 @@
                             ? activeConfig.size
                             : DEFAULT_MEDIUM_VMAX;
 
-                    document.getElementById('card-small').style.fontSize =
-                        (vmax * smallSize) / 100 / SMALL_EM + 'px';
-                    document.getElementById('card-medium').style.fontSize =
-                        (vmax * mediumSize) / 100 / MEDIUM_EM + 'px';
+                    fitCard(
+                        document.getElementById('card-small'),
+                        (vmax * smallSize) / 100 / SMALL_EM,
+                    );
+                    fitCard(
+                        document.getElementById('card-medium'),
+                        (vmax * mediumSize) / 100 / MEDIUM_EM,
+                    );
                     // Height budget: the fullscreen column is ~40em tall
                     document.getElementById('screen-full').style.fontSize =
                         Math.min(vmin / 34, window.innerHeight / 41) + 'px';
+                }
+
+                /**
+                 * Apply a card's font size, then shrink it to fit inside
+                 * the viewport (minus the body gutter). The host may size
+                 * the iframe to just the card region rather than the whole
+                 * screen, in which case the configured vmax size would
+                 * overflow - the card scales down to fill what it has.
+                 *
+                 * @param {Element} el - Card element
+                 * @param {number} font - Requested font size in px
+                 */
+                function fitCard(el, font) {
+                    el.style.fontSize = font + 'px';
+                    var width = el.offsetWidth;
+                    var height = el.offsetHeight;
+                    if (!width || !height) {
+                        return; // Hidden mode - nothing to fit
+                    }
+                    var gutter =
+                        (Math.max(window.innerWidth, window.innerHeight) /
+                            100) *
+                        2;
+                    var scale = Math.min(
+                        1,
+                        (window.innerWidth - gutter) / width,
+                        (window.innerHeight - gutter) / height,
+                    );
+                    if (scale < 1) {
+                        el.style.fontSize = font * scale + 'px';
+                    }
                 }
 
                 window.addEventListener('resize', function () {

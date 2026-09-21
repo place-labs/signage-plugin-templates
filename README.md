@@ -640,7 +640,7 @@ content.
 | `units` | string | `'metric'` | `'metric'` (°C, km/h) or `'imperial'` (°F, mph) |
 | `timezone` | string | `'auto'` | IANA timezone for displayed times, or `auto` for the location's zone |
 | `mode` | string | `'medium'` | `'small'`, `'medium'` or `'fullscreen'` |
-| `size` | number | `0` | Card width in vmax for small/medium (0 = automatic: 22 small, 44 medium) |
+| `size` | number | `0` | Card width for small/medium as % of the screen's larger dimension (0 = automatic: 22 small, 44 medium). Sizing is relative to the screen, not the iframe, so the card stays the same size wherever the iframe is positioned, shrinking only if the iframe gives it less room |
 | `opacity` | number | `62` | Background opacity % of the card backing and fullscreen panels (0 - 100) |
 
 **Error codes:** `MISSING_COORDS`, `FORECAST_FETCH_FAILED` (both fatal only
