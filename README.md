@@ -29,6 +29,7 @@ rain/rain.html     Transparent rain-on-glass overlay plugin template
 halloween/halloween.html   Transparent Halloween decorations overlay plugin template
 christmas/christmas.html   Transparent Christmas snow/plow/santa overlay plugin template
 easter/easter.html Transparent Easter bunny/egg overlay plugin template
+weather/weather.html   Weather widget plugin template (open-meteo, 3 modes)
 validator.html     Development tool - protocol compliance validator
 .prettierrc        Prettier config (single quotes, 4-space indent)
 ```
@@ -589,6 +590,59 @@ content.
 | `bunny_chance` | number | `0.5` | Probability a crossing is the bunny rather than an egg, `0` - `1` |
 
 **Error codes:** `MISSING_ELEMENT`
+
+---
+
+### Weather (`weather/weather.html`)
+
+A weather widget backed by the free [open-meteo.com](https://open-meteo.com)
+forecast API (no key required), with three display modes:
+
+- **small** - compact card: location, current temperature, high/low, next
+  precipitation and wind.
+- **medium** - card with current conditions plus a six-slot hourly strip
+  (Now + the next five hours).
+- **fullscreen** - full-bleed photographic background matching the current
+  weather (day / night / cloud / rain), with an hourly conditions card and a
+  seven-day forecast card featuring temperature range bars and a marker for
+  the current temperature.
+
+The small and medium cards render as a semi-transparent rounded panel on a
+fully transparent page, so they can overlay other signage content (embed
+with `allowtransparency` and `pointer-events: none`); their width is set in
+vmax units. Weather icons are from the react-icons sets used by
+[weather-app-v2](https://github.com/danisharyanfahim/weather-app-v2) and
+the fullscreen backgrounds from
+[weather-app-using-openweathermap-api](https://github.com/kshitizrohilla/weather-app-using-openweathermap-api),
+embedded as data URIs so the plugin stays a single self-contained file.
+
+Forecast data is fetched at most **every 3 hours** and cached in
+`localStorage` (persisting across reloads - a fresh cache renders with no
+network at all). The UI re-renders **every minute** from the cache,
+linearly interpolating the hourly series to the current minute: at half
+past the hour the displayed temperature is the average of the two bounding
+hours. All times are computed in the configured forecast timezone. Failed
+fetches keep showing the last data (even a stale cache) and retry every 5
+minutes; config re-pushes are answered with `ready` and never blank a
+working display.
+
+**Capabilities:** Does not require a play signal, cannot finish, dynamic
+content.
+
+**Configuration:**
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `latitude` | number | -- | Location latitude (required) |
+| `longitude` | number | -- | Location longitude (required) |
+| `location_name` | string | `''` | Display name shown on the widget |
+| `units` | string | `'metric'` | `'metric'` (°C, km/h) or `'imperial'` (°F, mph) |
+| `timezone` | string | `'auto'` | IANA timezone for displayed times, or `auto` for the location's zone |
+| `mode` | string | `'medium'` | `'small'`, `'medium'` or `'fullscreen'` |
+| `size` | number | `0` | Card width in vmax for small/medium (0 = automatic: 22 small, 44 medium) |
+
+**Error codes:** `MISSING_COORDS`, `FORECAST_FETCH_FAILED` (both fatal only
+before anything has been displayed)
 
 ---
 
