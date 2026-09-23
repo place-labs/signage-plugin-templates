@@ -118,6 +118,7 @@
                     plugin: {
                         name: 'youtube-player',
                         version: '1.0.0',
+                        type: 'plugin',
                     },
                     capabilities: {
                         requires_play_signal: true,
@@ -167,8 +168,7 @@
                         }
 
                         // Hide any previous error
-                        var overlay =
-                            document.getElementById('error-overlay');
+                        var overlay = document.getElementById('error-overlay');
                         if (overlay) {
                             overlay.style.display = 'none';
                         }

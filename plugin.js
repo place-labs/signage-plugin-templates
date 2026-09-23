@@ -21,6 +21,7 @@ export type PluginLoadedPayload = {
     plugin: {
         name: string;
         version: string;
+        type: 'plugin' | 'widget';
     };
     capabilities: {
         requires_play_signal: boolean;
@@ -75,6 +76,7 @@ var SignagePlugin = (function () {
     'use strict';
 
     var API_VERSION = 'signage-plugin/v1';
+    var PLUGIN_TYPES = ['plugin', 'widget'];
 
     var _isEmbedded = window.parent && window.parent !== window;
 
@@ -136,6 +138,7 @@ var SignagePlugin = (function () {
      * @param {object} options.plugin            - Plugin metadata
      * @param {string} options.plugin.name       - Plugin name
      * @param {string} options.plugin.version    - Plugin version
+     * @param {string} [options.plugin.type]     - 'plugin' (default) or 'widget'
      * @param {object} options.capabilities      - Plugin capabilities
      * @param {boolean} [options.capabilities.requires_play_signal=true]
      * @param {boolean} [options.capabilities.can_finish=true]
@@ -155,6 +158,15 @@ var SignagePlugin = (function () {
         ) {
             throw new Error(
                 'SignagePlugin.create requires options.plugin.name and options.plugin.version',
+            );
+        }
+
+        var pluginType =
+            options.plugin.type !== undefined ? options.plugin.type : 'plugin';
+        if (PLUGIN_TYPES.indexOf(pluginType) === -1) {
+            throw new Error(
+                'SignagePlugin.create options.plugin.type must be one of: ' +
+                    PLUGIN_TYPES.join(', '),
             );
         }
 
@@ -289,6 +301,7 @@ var SignagePlugin = (function () {
             plugin: {
                 name: options.plugin.name,
                 version: options.plugin.version,
+                type: pluginType,
             },
             capabilities: {
                 requires_play_signal:

@@ -89,33 +89,37 @@ Creates and returns a plugin instance. This is the only public method on the
 var plugin = SignagePlugin.create({
     plugin: {
         name: 'my-plugin',
-        version: '1.0.0'
+        version: '1.0.0',
     },
     capabilities: {
         requires_play_signal: true,
         can_finish: true,
-        static_media: false
+        static_media: false,
     },
-    config_schema: { /* ... */ },
+    config_schema: {/* ... */},
     allowed_origin: null,
-    onConfig: function (data) { /* ... */ },
-    onPlay: function () { /* ... */ }
+    onConfig: function (data) {
+        /* ... */
+    },
+    onPlay: function () {
+        /* ... */
+    },
 });
 ```
 
 #### Options
 
-| Property | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `plugin.name` | string | Yes | -- | Plugin name (e.g. `'youtube-player'`) |
-| `plugin.version` | string | Yes | -- | Semantic version (e.g. `'1.0.0'`) |
-| `capabilities.requires_play_signal` | boolean | No | `true` | Plugin waits for the host `play` message before starting |
-| `capabilities.can_finish` | boolean | No | `true` | Plugin will call `finished()` when done |
-| `capabilities.static_media` | boolean | No | `false` | Content does not change over time |
-| `config_schema` | object | No | `{}` | JSON-Schema-like descriptor for host UI generation |
-| `allowed_origin` | string | No | `null` | Restrict accepted messages to this origin |
-| `onConfig` | function | No | `null` | Called when the host sends configuration |
-| `onPlay` | function | No | `null` | Called when the host triggers playback |
+| Property                            | Type     | Required | Default | Description                                              |
+| ----------------------------------- | -------- | -------- | ------- | -------------------------------------------------------- |
+| `plugin.name`                       | string   | Yes      | --      | Plugin name (e.g. `'youtube-player'`)                    |
+| `plugin.version`                    | string   | Yes      | --      | Semantic version (e.g. `'1.0.0'`)                        |
+| `capabilities.requires_play_signal` | boolean  | No       | `true`  | Plugin waits for the host `play` message before starting |
+| `capabilities.can_finish`           | boolean  | No       | `true`  | Plugin will call `finished()` when done                  |
+| `capabilities.static_media`         | boolean  | No       | `false` | Content does not change over time                        |
+| `config_schema`                     | object   | No       | `{}`    | JSON-Schema-like descriptor for host UI generation       |
+| `allowed_origin`                    | string   | No       | `null`  | Restrict accepted messages to this origin                |
+| `onConfig`                          | function | No       | `null`  | Called when the host sends configuration                 |
+| `onPlay`                            | function | No       | `null`  | Called when the host triggers playback                   |
 
 Throws an `Error` if `plugin.name` or `plugin.version` is missing.
 
@@ -165,10 +169,10 @@ Reports an error to the host. Can be called at any point in the lifecycle.
 
 ```js
 plugin.error({
-    code: 'LOAD_FAILED',       // UPPER_SNAKE_CASE error code (default: 'UNKNOWN_ERROR')
+    code: 'LOAD_FAILED', // UPPER_SNAKE_CASE error code (default: 'UNKNOWN_ERROR')
     message: 'Failed to load', // Human-readable message (default: 'An unknown error occurred')
-    fatal: true,               // Unrecoverable error? (default: false)
-    details: { status: 404 }   // Additional context (default: {})
+    fatal: true, // Unrecoverable error? (default: false)
+    details: { status: 404 }, // Additional context (default: {})
 });
 ```
 
@@ -204,8 +208,12 @@ Replaces a handler after initialization. `event` must be `'config'` or
 `'play'`.
 
 ```js
-plugin.on('config', function (data) { /* new handler */ });
-plugin.on('play', function () { /* new handler */ });
+plugin.on('config', function (data) {
+    /* new handler */
+});
+plugin.on('play', function () {
+    /* new handler */
+});
 ```
 
 ---
@@ -255,14 +263,14 @@ config_schema: {
 
 ### Supported Property Attributes
 
-| Attribute | Type | Description |
-|---|---|---|
-| `type` | string | `'string'`, `'number'`, `'boolean'`, or `'object'` |
-| `title` | string | Short label for the host UI |
-| `description` | string | Longer help text |
-| `default` | any | Default value |
-| `enum` | array | Constrained set of allowed values (for dropdowns) |
-| `properties` | object | Nested properties (when `type` is `'object'`) |
+| Attribute     | Type   | Description                                        |
+| ------------- | ------ | -------------------------------------------------- |
+| `type`        | string | `'string'`, `'number'`, `'boolean'`, or `'object'` |
+| `title`       | string | Short label for the host UI                        |
+| `description` | string | Longer help text                                   |
+| `default`     | any    | Default value                                      |
+| `enum`        | array  | Constrained set of allowed values (for dropdowns)  |
+| `properties`  | object | Nested properties (when `type` is `'object'`)      |
 
 ---
 
@@ -281,20 +289,20 @@ All messages conform to this envelope:
 
 ### Plugin to Host Messages
 
-| Type | Payload | Description |
-|---|---|---|
-| `loaded` | `{ plugin, capabilities, config_schema }` | Plugin initialized and ready for config |
-| `ready` | none | Plugin prepared and ready for playback |
-| `interaction` | `{ new_duration }` | Optional interaction event during playback |
-| `finished` | none | Playback complete |
-| `error` | `{ code, message, fatal, details }` | Error report |
+| Type          | Payload                                   | Description                                |
+| ------------- | ----------------------------------------- | ------------------------------------------ |
+| `loaded`      | `{ plugin, capabilities, config_schema }` | Plugin initialized and ready for config    |
+| `ready`       | none                                      | Plugin prepared and ready for playback     |
+| `interaction` | `{ new_duration }`                        | Optional interaction event during playback |
+| `finished`    | none                                      | Playback complete                          |
+| `error`       | `{ code, message, fatal, details }`       | Error report                               |
 
 ### Host to Plugin Messages
 
-| Type | Payload | Description |
-|---|---|---|
+| Type     | Payload                                      | Description            |
+| -------- | -------------------------------------------- | ---------------------- |
 | `config` | `{ instance_id, config, content?, timing? }` | Configuration delivery |
-| `play` | none | Start playback |
+| `play`   | none                                         | Start playback         |
 
 ---
 
@@ -309,15 +317,15 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `video_id` | string | -- | YouTube video ID (e.g. `dQw4w9WgXcQ`) |
-| `api_key` | string | -- | YouTube Data API v3 key (optional) |
-| `mute` | boolean | `true` | Mute audio |
-| `loop` | boolean | `true` | Loop video playback |
-| `start` | number | -- | Start time in seconds |
-| `end` | number | -- | End time in seconds |
-| `controls` | boolean | `false` | Show player controls |
+| Property   | Type    | Default | Description                           |
+| ---------- | ------- | ------- | ------------------------------------- |
+| `video_id` | string  | --      | YouTube video ID (e.g. `dQw4w9WgXcQ`) |
+| `api_key`  | string  | --      | YouTube Data API v3 key (optional)    |
+| `mute`     | boolean | `true`  | Mute audio                            |
+| `loop`     | boolean | `true`  | Loop video playback                   |
+| `start`    | number  | --      | Start time in seconds                 |
+| `end`      | number  | --      | End time in seconds                   |
+| `controls` | boolean | `false` | Show player controls                  |
 
 The video ID can also be provided via `content.url` using standard YouTube URL
 formats (`youtu.be/ID`, `youtube.com/watch?v=ID`, `youtube.com/embed/ID`).
@@ -333,13 +341,13 @@ media.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `url` | string | -- | Full Instagram post or reel URL |
-| `shortcode` | string | -- | Instagram shortcode (alternative to full URL) |
-| `content_type` | string | `'post'` | `'post'` or `'reel'` (used with shortcode) |
-| `show_caption` | boolean | `false` | Display the post caption |
-| `max_width` | number | `540` | Embed max width in pixels (326-540) |
+| Property       | Type    | Default  | Description                                   |
+| -------------- | ------- | -------- | --------------------------------------------- |
+| `url`          | string  | --       | Full Instagram post or reel URL               |
+| `shortcode`    | string  | --       | Instagram shortcode (alternative to full URL) |
+| `content_type` | string  | `'post'` | `'post'` or `'reel'` (used with shortcode)    |
+| `show_caption` | boolean | `false`  | Display the post caption                      |
+| `max_width`    | number  | `540`    | Embed max width in pixels (326-540)           |
 
 The URL can also be provided via `content.url`.
 
@@ -360,14 +368,14 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `feed_url` | string | -- | RSS 2.0 or Atom feed URL (required) |
-| `max_items` | number | `10` | Number of top headlines to scroll |
-| `scroll_speed` | number | `1.5` | Scroll speed in strip-heights per second |
-| `show_images` | boolean | `true` | Show article images where available |
-| `label_text` | string | `'Breaking News'` | Fixed label on the left edge (empty string hides it) |
-| `label_color` | string | `'#eb0d41'` | CSS background colour of the label and arrow |
+| Property       | Type    | Default           | Description                                          |
+| -------------- | ------- | ----------------- | ---------------------------------------------------- |
+| `feed_url`     | string  | --                | RSS 2.0 or Atom feed URL (required)                  |
+| `max_items`    | number  | `10`              | Number of top headlines to scroll                    |
+| `scroll_speed` | number  | `1.5`             | Scroll speed in strip-heights per second             |
+| `show_images`  | boolean | `true`            | Show article images where available                  |
+| `label_text`   | string  | `'Breaking News'` | Fixed label on the left edge (empty string hides it) |
+| `label_color`  | string  | `'#eb0d41'`       | CSS background colour of the label and arrow         |
 
 The feed URL can also be provided via `content.url`.
 
@@ -432,13 +440,13 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `intensity` | number | `0.5` | Rain heaviness, `0` (light drizzle) to `1` (downpour) |
-| `capture_mode` | string | `'auto'` | `'display'` (real-time tab capture), `'dom'` (DOM mirroring), or `'auto'` (try display, fall back to dom) |
-| `snapshot_interval` | number | `10` | Seconds between DOM re-captures in dom mode (live video/canvas mirror every frame; min 0.25) |
-| `background_selector` | string | -- | CSS selector for the parent element to mirror in dom mode (defaults to the page body) |
-| `fallback_color` | string | `'#1b2531'` | Colour refracted when the base page cannot be captured |
+| Property              | Type   | Default     | Description                                                                                               |
+| --------------------- | ------ | ----------- | --------------------------------------------------------------------------------------------------------- |
+| `intensity`           | number | `0.5`       | Rain heaviness, `0` (light drizzle) to `1` (downpour)                                                     |
+| `capture_mode`        | string | `'auto'`    | `'display'` (real-time tab capture), `'dom'` (DOM mirroring), or `'auto'` (try display, fall back to dom) |
+| `snapshot_interval`   | number | `10`        | Seconds between DOM re-captures in dom mode (live video/canvas mirror every frame; min 0.25)              |
+| `background_selector` | string | --          | CSS selector for the parent element to mirror in dom mode (defaults to the page body)                     |
+| `fallback_color`      | string | `'#1b2531'` | Colour refracted when the base page cannot be captured                                                    |
 
 In dom mode, cross-origin images, videos and stylesheets in the base page are
 skipped rather than allowed to taint the mirror canvas; if a cross-origin
@@ -480,14 +488,14 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `scale` | number | `1` | Overall size multiplier for all decorations (0.25 - 3) |
-| `witch_interval` | number | `15` | Seconds between witch fly-bys (5 - 3600) |
-| `witch_duration` | number | `4` | Seconds the witch takes to cross the screen (2 - 60) |
-| `show_spider` | boolean | `true` | Display the spider in the top right corner |
-| `show_pumpkin` | boolean | `true` | Display the jack-o'-lantern in the bottom left corner |
-| `show_witch` | boolean | `true` | Display the flying witch |
+| Property         | Type    | Default | Description                                            |
+| ---------------- | ------- | ------- | ------------------------------------------------------ |
+| `scale`          | number  | `1`     | Overall size multiplier for all decorations (0.25 - 3) |
+| `witch_interval` | number  | `15`    | Seconds between witch fly-bys (5 - 3600)               |
+| `witch_duration` | number  | `4`     | Seconds the witch takes to cross the screen (2 - 60)   |
+| `show_spider`    | boolean | `true`  | Display the spider in the top right corner             |
+| `show_pumpkin`   | boolean | `true`  | Display the jack-o'-lantern in the bottom left corner  |
+| `show_witch`     | boolean | `true`  | Display the flying witch                               |
 
 If `witch_duration` is longer than `witch_interval`, in-progress fly-bys are
 never interrupted; the next launch simply waits for the following interval.
@@ -529,18 +537,18 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `scale` | number | `1` | Overall size multiplier for the plow and santa (0.25 - 3) |
-| `snow_intensity` | number | `0.5` | Snowfall heaviness, `0` (none) to `1` (blizzard) |
-| `drift_height` | number | `4` | Maximum drift accumulation above the base, as % of screen height (2 - 30) |
-| `snow_base` | number | `0` | Permanent snow layer as % of screen height; the plow sits on top of it and never clears it (0 - 20) |
-| `plow_interval` | number | `30` | Seconds between plow runs (5 - 3600) |
-| `plow_duration` | number | `5` | Seconds the plow takes to cross the screen (2 - 60) |
-| `santa_interval` | number | `15` | Seconds between santa fly-bys (5 - 3600) |
-| `santa_duration` | number | `4` | Seconds santa takes to cross the screen (2 - 60) |
-| `show_plow` | boolean | `true` | Periodically clear the drift with the plow |
-| `show_santa` | boolean | `true` | Display santa flying across the screen |
+| Property         | Type    | Default | Description                                                                                         |
+| ---------------- | ------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `scale`          | number  | `1`     | Overall size multiplier for the plow and santa (0.25 - 3)                                           |
+| `snow_intensity` | number  | `0.5`   | Snowfall heaviness, `0` (none) to `1` (blizzard)                                                    |
+| `drift_height`   | number  | `4`     | Maximum drift accumulation above the base, as % of screen height (2 - 30)                           |
+| `snow_base`      | number  | `0`     | Permanent snow layer as % of screen height; the plow sits on top of it and never clears it (0 - 20) |
+| `plow_interval`  | number  | `30`    | Seconds between plow runs (5 - 3600)                                                                |
+| `plow_duration`  | number  | `5`     | Seconds the plow takes to cross the screen (2 - 60)                                                 |
+| `santa_interval` | number  | `15`    | Seconds between santa fly-bys (5 - 3600)                                                            |
+| `santa_duration` | number  | `4`     | Seconds santa takes to cross the screen (2 - 60)                                                    |
+| `show_plow`      | boolean | `true`  | Periodically clear the drift with the plow                                                          |
+| `show_santa`     | boolean | `true`  | Display santa flying across the screen                                                              |
 
 The first plow run happens one full interval after `play` so the drift has
 time to build. In-progress runs and fly-bys are never interrupted, and the
@@ -582,12 +590,12 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `scale` | number | `1` | Overall size multiplier for the bunny and eggs (0.25 - 3) |
-| `run_interval` | number | `20` | Seconds between crossings (5 - 3600) |
-| `run_duration` | number | `6` | Seconds a crossing takes (2 - 60) |
-| `bunny_chance` | number | `0.5` | Probability a crossing is the bunny rather than an egg, `0` - `1` |
+| Property       | Type   | Default | Description                                                       |
+| -------------- | ------ | ------- | ----------------------------------------------------------------- |
+| `scale`        | number | `1`     | Overall size multiplier for the bunny and eggs (0.25 - 3)         |
+| `run_interval` | number | `20`    | Seconds between crossings (5 - 3600)                              |
+| `run_duration` | number | `6`     | Seconds a crossing takes (2 - 60)                                 |
+| `bunny_chance` | number | `0.5`   | Probability a crossing is the bunny rather than an egg, `0` - `1` |
 
 **Error codes:** `MISSING_ELEMENT`
 
@@ -632,16 +640,16 @@ content.
 
 **Configuration:**
 
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `loc_latitude` | number | -- | Location latitude (required; the `loc_` prefix keeps the pair adjacent in alphabetised config forms - `latitude` accepted as a legacy alias) |
-| `loc_longitude` | number | -- | Location longitude (required; `longitude` accepted as a legacy alias) |
-| `display_name` | string | `''` | Location name shown on the widget (`location_name` accepted as a legacy alias) |
-| `units` | string | `'metric'` | `'metric'` (°C, km/h) or `'imperial'` (°F, mph) |
-| `timezone` | string | `'auto'` | IANA timezone for displayed times, or `auto` for the location's zone |
-| `mode` | string | `'medium'` | `'small'`, `'medium'` or `'fullscreen'` |
-| `size` | number | `0` | Card width for small/medium as % of the base page's larger dimension (0 = automatic: 22 small, 44 medium). Sizing reads the same-origin parent page, not the iframe, so the card is the same size wherever and however large the host positions the iframe |
-| `opacity` | number | `62` | Background opacity % of the card backing and fullscreen panels (0 - 100) |
+| Property        | Type   | Default    | Description                                                                                                                                                                                                                                                |
+| --------------- | ------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loc_latitude`  | number | --         | Location latitude (required; the `loc_` prefix keeps the pair adjacent in alphabetised config forms - `latitude` accepted as a legacy alias)                                                                                                               |
+| `loc_longitude` | number | --         | Location longitude (required; `longitude` accepted as a legacy alias)                                                                                                                                                                                      |
+| `display_name`  | string | `''`       | Location name shown on the widget (`location_name` accepted as a legacy alias)                                                                                                                                                                             |
+| `units`         | string | `'metric'` | `'metric'` (°C, km/h) or `'imperial'` (°F, mph)                                                                                                                                                                                                            |
+| `timezone`      | string | `'auto'`   | IANA timezone for displayed times, or `auto` for the location's zone                                                                                                                                                                                       |
+| `mode`          | string | `'medium'` | `'small'`, `'medium'` or `'fullscreen'`                                                                                                                                                                                                                    |
+| `size`          | number | `0`        | Card width for small/medium as % of the base page's larger dimension (0 = automatic: 22 small, 44 medium). Sizing reads the same-origin parent page, not the iframe, so the card is the same size wherever and however large the host positions the iframe |
+| `opacity`       | number | `62`       | Background opacity % of the card backing and fullscreen panels (0 - 100)                                                                                                                                                                                   |
 
 **Error codes:** `MISSING_COORDS`, `FORECAST_FETCH_FAILED` (both fatal only
 before anything has been displayed)
@@ -655,125 +663,137 @@ before anything has been displayed)
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Plugin</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-        #error-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.85);
-            color: #ff4444;
-            font-family: monospace;
-            font-size: 16px;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 20px;
-            z-index: 9999;
-        }
-    </style>
-</head>
-<body>
-    <!-- Your plugin content here -->
-    <div id="content"></div>
-    <div id="error-overlay"></div>
-
-    <script src="plugin.js"></script>
-    <script>
-    (function () {
-        'use strict';
-
-        // ---------------------------------------------------------------
-        // Config schema -- describes what the host UI should show
-        // ---------------------------------------------------------------
-        var CONFIG_SCHEMA = {
-            type: 'object',
-            properties: {
-                message: {
-                    type: 'string',
-                    title: 'Message',
-                    description: 'Text to display',
-                    default: 'Hello, World!'
-                },
-                duration_ms: {
-                    type: 'number',
-                    title: 'Duration (ms)',
-                    description: 'How long to display before finishing',
-                    default: 5000
-                }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>My Plugin</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
             }
-        };
-
-        // ---------------------------------------------------------------
-        // Error overlay
-        // ---------------------------------------------------------------
-        function showError(msg) {
-            var overlay = document.getElementById('error-overlay');
-            if (overlay) {
-                overlay.textContent = msg;
-                overlay.style.display = 'flex';
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
             }
-        }
-
-        // ---------------------------------------------------------------
-        // Plugin state
-        // ---------------------------------------------------------------
-        var config = null;
-        var pendingPlay = false;
-
-        // ---------------------------------------------------------------
-        // Create plugin instance
-        // ---------------------------------------------------------------
-        var plugin = SignagePlugin.create({
-            plugin: { name: 'my-plugin', version: '1.0.0' },
-            capabilities: {
-                requires_play_signal: true,
-                can_finish: true,
-                static_media: false
-            },
-            config_schema: CONFIG_SCHEMA,
-
-            onConfig: function (data) {
-                config = data.config || {};
-
-                // Validate required fields
-                var message = config.message || 'Hello, World!';
-                document.getElementById('content').textContent = message;
-
-                plugin.ready();
-
-                if (pendingPlay) {
-                    pendingPlay = false;
-                    startPlayback();
-                }
-            },
-
-            onPlay: function () {
-                if (!config) {
-                    pendingPlay = true;
-                    return;
-                }
-                startPlayback();
+            #error-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.85);
+                color: #ff4444;
+                font-family: monospace;
+                font-size: 16px;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                padding: 20px;
+                z-index: 9999;
             }
-        });
+        </style>
+    </head>
+    <body>
+        <!-- Your plugin content here -->
+        <div id="content"></div>
+        <div id="error-overlay"></div>
 
-        function startPlayback() {
-            var duration = config.duration_ms !== undefined
-                ? config.duration_ms
-                : 5000;
+        <script src="plugin.js"></script>
+        <script>
+            (function () {
+                'use strict';
 
-            setTimeout(function () {
-                plugin.finished();
-            }, duration);
-        }
-    })();
-    </script>
-</body>
+                // ---------------------------------------------------------------
+                // Config schema -- describes what the host UI should show
+                // ---------------------------------------------------------------
+                var CONFIG_SCHEMA = {
+                    type: 'object',
+                    properties: {
+                        message: {
+                            type: 'string',
+                            title: 'Message',
+                            description: 'Text to display',
+                            default: 'Hello, World!',
+                        },
+                        duration_ms: {
+                            type: 'number',
+                            title: 'Duration (ms)',
+                            description: 'How long to display before finishing',
+                            default: 5000,
+                        },
+                    },
+                };
+
+                // ---------------------------------------------------------------
+                // Error overlay
+                // ---------------------------------------------------------------
+                function showError(msg) {
+                    var overlay = document.getElementById('error-overlay');
+                    if (overlay) {
+                        overlay.textContent = msg;
+                        overlay.style.display = 'flex';
+                    }
+                }
+
+                // ---------------------------------------------------------------
+                // Plugin state
+                // ---------------------------------------------------------------
+                var config = null;
+                var pendingPlay = false;
+
+                // ---------------------------------------------------------------
+                // Create plugin instance
+                // ---------------------------------------------------------------
+                var plugin = SignagePlugin.create({
+                    plugin: { name: 'my-plugin', version: '1.0.0' },
+                    capabilities: {
+                        requires_play_signal: true,
+                        can_finish: true,
+                        static_media: false,
+                    },
+                    config_schema: CONFIG_SCHEMA,
+
+                    onConfig: function (data) {
+                        config = data.config || {};
+
+                        // Validate required fields
+                        var message = config.message || 'Hello, World!';
+                        document.getElementById('content').textContent =
+                            message;
+
+                        plugin.ready();
+
+                        if (pendingPlay) {
+                            pendingPlay = false;
+                            startPlayback();
+                        }
+                    },
+
+                    onPlay: function () {
+                        if (!config) {
+                            pendingPlay = true;
+                            return;
+                        }
+                        startPlayback();
+                    },
+                });
+
+                function startPlayback() {
+                    var duration =
+                        config.duration_ms !== undefined
+                            ? config.duration_ms
+                            : 5000;
+
+                    setTimeout(function () {
+                        plugin.finished();
+                    }, duration);
+                }
+            })();
+        </script>
+    </body>
 </html>
 ```
 
@@ -826,9 +846,9 @@ against the `signage-plugin/v1` protocol.
 
 1. Start a local server from the repository root:
 
-   ```bash
-   python3 -m http.server 8080
-   ```
+    ```bash
+    python3 -m http.server 8080
+    ```
 
 2. Open `http://localhost:8080/validator.html` in your browser.
 
@@ -836,28 +856,29 @@ against the `signage-plugin/v1` protocol.
 
 4. Walk through the lifecycle:
 
-   - **Load** -- Click to load your plugin in a sandboxed iframe. The validator
-     waits up to 5 seconds for a `loaded` message.
-   - **Send Config** -- Opens a JSON editor pre-populated with defaults from
-     your `config_schema`. Edit the values and click Send. The validator waits up
-     to 30 seconds for a `ready` message.
-   - **Send Play** -- Sends a `play` message to trigger playback.
-   - **Reset** -- Removes the iframe and clears state for a fresh test.
+    - **Load** -- Click to load your plugin in a sandboxed iframe. The validator
+      waits up to 5 seconds for a `loaded` message.
+    - **Send Config** -- Opens a JSON editor pre-populated with defaults from
+      your `config_schema`. Edit the values and click Send. The validator waits up
+      to 30 seconds for a `ready` message.
+    - **Send Play** -- Sends a `play` message to trigger playback.
+    - **Reset** -- Removes the iframe and clears state for a fresh test.
 
 ### What the Validator Checks
 
 The validation log uses color-coded entries:
 
-| Tag | Meaning |
-|---|---|
-| `[PASS]` | Check passed (green) |
-| `[FAIL]` | Check failed (red) |
-| `[WARN]` | Warning or unusual behavior (orange) |
-| `[INFO]` | Informational (blue) |
+| Tag      | Meaning                               |
+| -------- | ------------------------------------- |
+| `[PASS]` | Check passed (green)                  |
+| `[FAIL]` | Check failed (red)                    |
+| `[WARN]` | Warning or unusual behavior (orange)  |
+| `[INFO]` | Informational (blue)                  |
 | `[RECV]` | Message received from plugin (purple) |
-| `[SEND]` | Message sent to plugin (cyan) |
+| `[SEND]` | Message sent to plugin (cyan)         |
 
 **Protocol envelope checks:**
+
 - `api` field equals `'signage-plugin/v1'`
 - `type` is a valid plugin message type (`loaded`, `ready`, `finished`, `error`)
 
@@ -866,6 +887,7 @@ not yet recognize it, so interactive plugins may log a validator failure if they
 emit `interaction` during testing.
 
 **Loaded message checks:**
+
 - Payload is present
 - `plugin.name` and `plugin.version` are non-empty strings
 - `capabilities` object is present with boolean values for
@@ -873,18 +895,21 @@ emit `interaction` during testing.
 - `config_schema` is present
 
 **Lifecycle checks:**
+
 - `ready` arrives after `config` was sent (warns if before)
 - `finished` is not sent by plugins that declared `can_finish: false`
 - `finished` is not sent more than once
 - `play` is not sent before `ready` was received
 
 **Error message checks:**
+
 - `code` is a non-empty UPPER_SNAKE_CASE string
 - `message` is a non-empty string
 - `fatal` is a boolean
 - `details` is an object (if present)
 
 **Timeout checks:**
+
 - Plugin must send `loaded` within 5 seconds of iframe creation
 - Plugin must send `ready` within 30 seconds of receiving config
 

@@ -97,14 +97,14 @@ Error reporting at any stage: `plugin.error({ code, message, fatal, details })`
 
 ### Naming Conventions
 
-| Context                        | Convention          | Examples                                    |
-|-------------------------------|---------------------|---------------------------------------------|
-| JS variables and functions    | camelCase           | `pluginConfig`, `initPlayer`, `showError`   |
-| Private/internal functions    | _camelCase (prefix) | `_postToHost`, `_isValidHostMessage`        |
-| Constants                     | UPPER_SNAKE_CASE    | `API_VERSION`, `CONFIG_SCHEMA`              |
-| Protocol/data property names  | snake_case          | `video_id`, `api_key`, `instance_id`        |
-| Error codes                   | UPPER_SNAKE_CASE    | `MISSING_VIDEO_ID`, `YT_API_LOAD_FAILED`   |
-| HTML element IDs              | kebab-case          | `#player`, `#error-overlay`                 |
+| Context                      | Convention          | Examples                                  |
+| ---------------------------- | ------------------- | ----------------------------------------- |
+| JS variables and functions   | camelCase           | `pluginConfig`, `initPlayer`, `showError` |
+| Private/internal functions   | _camelCase (prefix) | `_postToHost`, `_isValidHostMessage`      |
+| Constants                    | UPPER_SNAKE_CASE    | `API_VERSION`, `CONFIG_SCHEMA`            |
+| Protocol/data property names | snake_case          | `video_id`, `api_key`, `instance_id`      |
+| Error codes                  | UPPER_SNAKE_CASE    | `MISSING_VIDEO_ID`, `YT_API_LOAD_FAILED`  |
+| HTML element IDs             | kebab-case          | `#player`, `#error-overlay`               |
 
 ### Imports / Script Loading
 
@@ -138,8 +138,10 @@ Every plugin template must:
 4. Use minimal inline `<style>` (no external CSS files)
 5. Use an IIFE with `'use strict'` for all inline JS
 6. Define a `CONFIG_SCHEMA` object (JSON-schema-like) for the host UI
-7. Call `SignagePlugin.create()` with: `plugin` metadata, `capabilities`, `config_schema`,
-   `onConfig` handler, and `onPlay` handler
+7. Call `SignagePlugin.create()` with: `plugin` metadata (`name`, `version`, `type`),
+   `capabilities`, `config_schema`, `onConfig` handler, and `onPlay` handler.
+   `type` is `'plugin'` (full content item, e.g. YouTube, Instagram) or `'widget'`
+   (overlay/info element, e.g. weather, ticker, seasonal overlays); defaults to `'plugin'`
 8. Call `plugin.ready()` when the plugin is ready to receive playback
 9. Call `plugin.finished()` when playback ends (if `can_finish: true`)
 10. Call `plugin.error({...})` on any failure

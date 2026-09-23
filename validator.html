@@ -605,6 +605,26 @@
                         );
                     }
 
+                    // plugin.type
+                    var pluginType = payload.plugin && payload.plugin.type;
+                    if (pluginType === 'plugin' || pluginType === 'widget') {
+                        log(
+                            'pass',
+                            'plugin.type is valid: "' + pluginType + '"',
+                        );
+                    } else if (pluginType === undefined) {
+                        log(
+                            'warn',
+                            'plugin.type is missing (host should assume "plugin").',
+                        );
+                    } else {
+                        log(
+                            'fail',
+                            'plugin.type must be "plugin" or "widget", got: ' +
+                                JSON.stringify(pluginType),
+                        );
+                    }
+
                     // capabilities
                     if (
                         payload.capabilities &&
