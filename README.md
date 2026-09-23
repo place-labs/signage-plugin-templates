@@ -65,7 +65,8 @@ Host                              Plugin (iframe)
 ```
 
 1. **Loaded** -- The plugin initializes and immediately announces itself to the
-   host with its name, version, capabilities, and config schema.
+   host with its name, version, type (`plugin` or `widget`), capabilities, and
+   config schema.
 2. **Config** -- The host sends configuration data (instance ID, config object,
    optional content and timing info). The plugin processes this and prepares.
 3. **Ready** -- The plugin signals it is ready for playback.
@@ -90,6 +91,7 @@ var plugin = SignagePlugin.create({
     plugin: {
         name: 'my-plugin',
         version: '1.0.0',
+        type: 'plugin',
     },
     capabilities: {
         requires_play_signal: true,
@@ -109,19 +111,21 @@ var plugin = SignagePlugin.create({
 
 #### Options
 
-| Property                            | Type     | Required | Default | Description                                              |
-| ----------------------------------- | -------- | -------- | ------- | -------------------------------------------------------- |
-| `plugin.name`                       | string   | Yes      | --      | Plugin name (e.g. `'youtube-player'`)                    |
-| `plugin.version`                    | string   | Yes      | --      | Semantic version (e.g. `'1.0.0'`)                        |
-| `capabilities.requires_play_signal` | boolean  | No       | `true`  | Plugin waits for the host `play` message before starting |
-| `capabilities.can_finish`           | boolean  | No       | `true`  | Plugin will call `finished()` when done                  |
-| `capabilities.static_media`         | boolean  | No       | `false` | Content does not change over time                        |
-| `config_schema`                     | object   | No       | `{}`    | JSON-Schema-like descriptor for host UI generation       |
-| `allowed_origin`                    | string   | No       | `null`  | Restrict accepted messages to this origin                |
-| `onConfig`                          | function | No       | `null`  | Called when the host sends configuration                 |
-| `onPlay`                            | function | No       | `null`  | Called when the host triggers playback                   |
+| Property                            | Type     | Required | Default    | Description                                                         |
+| ----------------------------------- | -------- | -------- | ---------- | ------------------------------------------------------------------- |
+| `plugin.name`                       | string   | Yes      | --         | Plugin name (e.g. `'youtube-player'`)                               |
+| `plugin.version`                    | string   | Yes      | --         | Semantic version (e.g. `'1.0.0'`)                                   |
+| `plugin.type`                       | string   | No       | `'plugin'` | `'plugin'` (full content item) or `'widget'` (overlay/info element) |
+| `capabilities.requires_play_signal` | boolean  | No       | `true`     | Plugin waits for the host `play` message before starting            |
+| `capabilities.can_finish`           | boolean  | No       | `true`     | Plugin will call `finished()` when done                             |
+| `capabilities.static_media`         | boolean  | No       | `false`    | Content does not change over time                                   |
+| `config_schema`                     | object   | No       | `{}`       | JSON-Schema-like descriptor for host UI generation                  |
+| `allowed_origin`                    | string   | No       | `null`     | Restrict accepted messages to this origin                           |
+| `onConfig`                          | function | No       | `null`     | Called when the host sends configuration                            |
+| `onPlay`                            | function | No       | `null`     | Called when the host triggers playback                              |
 
-Throws an `Error` if `plugin.name` or `plugin.version` is missing.
+Throws an `Error` if `plugin.name` or `plugin.version` is missing, or if
+`plugin.type` is not `'plugin'` or `'widget'`.
 
 On creation, the SDK immediately sends a `loaded` message to the host and begins
 listening for incoming `config` and `play` messages.
@@ -748,7 +752,11 @@ before anything has been displayed)
                 // Create plugin instance
                 // ---------------------------------------------------------------
                 var plugin = SignagePlugin.create({
-                    plugin: { name: 'my-plugin', version: '1.0.0' },
+                    plugin: {
+                        name: 'my-plugin',
+                        version: '1.0.0',
+                        type: 'plugin',
+                    },
                     capabilities: {
                         requires_play_signal: true,
                         can_finish: true,
@@ -890,6 +898,7 @@ emit `interaction` during testing.
 
 - Payload is present
 - `plugin.name` and `plugin.version` are non-empty strings
+- `plugin.type` is `plugin` or `widget` (warns if missing)
 - `capabilities` object is present with boolean values for
   `requires_play_signal`, `can_finish`, and `static_media`
 - `config_schema` is present
