@@ -110,23 +110,35 @@
 
                 var embedScriptLoaded = false;
                 var embedScriptLoading = false;
-                var pendingPlay = false;
+                var playRequest = null;
+                var embedReady = false;
+                var cancelEmbedWait = null;
+                var configGeneration = 0;
 
                 // Create the signage plugin
                 var plugin = SignagePlugin.create({
                     plugin: {
                         name: 'instagram-embed',
-                        version: '1.0.0',
+                        version: '1.1.0',
                         type: 'plugin',
                     },
                     capabilities: {
                         requires_play_signal: true,
                         can_finish: false,
                         static_media: true,
+                        can_report_playing: true,
                     },
                     config_schema: CONFIG_SCHEMA,
 
                     onConfig: function (payload) {
+                        configGeneration++;
+                        window._igPendingInit = null;
+                        playRequest = null;
+                        embedReady = false;
+                        if (cancelEmbedWait) {
+                            cancelEmbedWait();
+                            cancelEmbedWait = null;
+                        }
                         var config = payload.config || {};
 
                         // Resolve the Instagram URL
@@ -217,14 +229,15 @@
                             loadEmbedScript(function () {
                                 processEmbed();
                             });
+                        } else {
+                            window._igPendingInit = processEmbed;
                         }
                         // If script is loading, it will call processEmbed via the callback
                     },
 
-                    onPlay: function () {
-                        // Instagram embeds are static — nothing to "play".
-                        // The embed is already visible once ready.
-                        pendingPlay = false;
+                    onPlay: function (request) {
+                        playRequest = request;
+                        if (embedReady) plugin.afterPaint(request);
                     },
                 });
 
@@ -268,27 +281,34 @@
                 // ---------------------------------------------------------------
 
                 function processEmbed() {
+                    var generation = configGeneration;
                     if (
                         window.instgrm &&
                         window.instgrm.Embeds &&
                         typeof window.instgrm.Embeds.process === 'function'
                     ) {
+                        // Observe before process() inserts the iframe, so its
+                        // load event cannot be missed during a polling gap.
+                        cancelEmbedWait = waitForEmbedIframe(
+                            function (success) {
+                                if (generation !== configGeneration) return;
+                                cancelEmbedWait = null;
+                                if (success) {
+                                    embedReady = true;
+                                    plugin.ready();
+                                    plugin.afterPaint(playRequest);
+                                } else {
+                                    plugin.error({
+                                        code: 'EMBED_RENDER_TIMEOUT',
+                                        message:
+                                            'Instagram embed did not render within the expected time.',
+                                        fatal: true,
+                                    });
+                                    showError('Instagram embed failed to load');
+                                }
+                            },
+                        );
                         window.instgrm.Embeds.process();
-
-                        // Wait for Instagram to render the iframe
-                        waitForEmbedIframe(function (success) {
-                            if (success) {
-                                plugin.ready();
-                            } else {
-                                plugin.error({
-                                    code: 'EMBED_RENDER_TIMEOUT',
-                                    message:
-                                        'Instagram embed did not render within the expected time.',
-                                    fatal: true,
-                                });
-                                showError('Instagram embed failed to load');
-                            }
-                        });
                     } else {
                         plugin.error({
                             code: 'EMBED_API_UNAVAILABLE',
@@ -301,34 +321,46 @@
                 }
 
                 /**
-                 * Poll for the Instagram iframe to appear in the container.
-                 * Instagram's embed.js replaces the blockquote with an iframe.
+                 * Wait for the inserted iframe to load. Cancel on reconfigure.
                  *
                  * @param {function} callback - Called with true on success, false on timeout
                  */
                 function waitForEmbedIframe(callback) {
                     var container = document.getElementById('embed-container');
-                    var maxAttempts = 60; // 60 * 500ms = 30 seconds
-                    var attempts = 0;
+                    var iframe = null;
+                    var observer = new MutationObserver(findIframe);
+                    var timeout = setTimeout(function () {
+                        cleanup();
+                        callback(false);
+                    }, 30000);
 
-                    var interval = setInterval(function () {
-                        attempts++;
+                    function cleanup() {
+                        observer.disconnect();
+                        clearTimeout(timeout);
+                        if (iframe) iframe.removeEventListener('load', loaded);
+                    }
 
-                        var iframe = container
-                            ? container.querySelector('iframe')
-                            : null;
+                    function loaded() {
+                        cleanup();
+                        callback(true);
+                    }
 
-                        if (iframe) {
-                            clearInterval(interval);
-                            callback(true);
-                            return;
+                    function findIframe() {
+                        var next = container.querySelector('iframe');
+                        if (next && next !== iframe) {
+                            if (iframe)
+                                iframe.removeEventListener('load', loaded);
+                            iframe = next;
+                            iframe.addEventListener('load', loaded);
                         }
+                    }
 
-                        if (attempts >= maxAttempts) {
-                            clearInterval(interval);
-                            callback(false);
-                        }
-                    }, 500);
+                    observer.observe(container, {
+                        childList: true,
+                        subtree: true,
+                    });
+                    findIframe();
+                    return cleanup;
                 }
 
                 // ---------------------------------------------------------------

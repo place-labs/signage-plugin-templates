@@ -112,22 +112,31 @@
                 var ytApiReady = false;
                 var ytApiLoading = false;
                 var pendingPlay = false;
+                var playRequest = null;
+                var playerReady = false;
+                var configGeneration = 0;
 
                 // Create the signage plugin
                 var plugin = SignagePlugin.create({
                     plugin: {
                         name: 'youtube-player',
-                        version: '1.0.0',
+                        version: '1.1.0',
                         type: 'plugin',
                     },
                     capabilities: {
                         requires_play_signal: true,
                         can_finish: true,
                         static_media: false,
+                        can_report_playing: true,
                     },
                     config_schema: CONFIG_SCHEMA,
 
                     onConfig: function (payload) {
+                        configGeneration++;
+                        window._ytPendingInit = null;
+                        playRequest = null;
+                        pendingPlay = false;
+                        playerReady = false;
                         pluginConfig = payload;
                         var config = payload.config || {};
 
@@ -188,12 +197,20 @@
                         }
                     },
 
-                    onPlay: function () {
+                    onPlay: function (request) {
+                        playRequest = request;
                         if (
+                            playerReady &&
                             ytPlayer &&
                             typeof ytPlayer.playVideo === 'function'
                         ) {
                             ytPlayer.playVideo();
+                            if (
+                                ytPlayer.getPlayerState() ===
+                                YT.PlayerState.PLAYING
+                            ) {
+                                plugin.afterPaint(request);
+                            }
                         } else {
                             pendingPlay = true;
                         }
@@ -252,6 +269,7 @@
                 // ---------------------------------------------------------------
 
                 function initPlayer(videoId, config) {
+                    var generation = configGeneration;
                     var mute = config.mute !== undefined ? config.mute : true;
                     var loop = config.loop !== undefined ? config.loop : true;
                     var controls = config.controls ? 1 : 0;
@@ -297,6 +315,8 @@
                         playerVars: playerVars,
                         events: {
                             onReady: function (event) {
+                                if (generation !== configGeneration) return;
+                                playerReady = true;
                                 if (mute) {
                                     event.target.mute();
                                 }
@@ -312,6 +332,10 @@
                             },
 
                             onStateChange: function (event) {
+                                if (generation !== configGeneration) return;
+                                if (event.data === YT.PlayerState.PLAYING) {
+                                    plugin.afterPaint(playRequest);
+                                }
                                 // YT.PlayerState.ENDED === 0
                                 if (event.data === YT.PlayerState.ENDED) {
                                     if (!loop) {
@@ -321,6 +345,7 @@
                             },
 
                             onError: function (event) {
+                                if (generation !== configGeneration) return;
                                 var errorMessages = {
                                     2: 'Invalid video ID',
                                     5: 'HTML5 player error',

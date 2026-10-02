@@ -5,6 +5,7 @@ const API_VERSION = 'signage-plugin/v1';
 export type SignagePluginMessageType =
     | 'loaded'
     | 'ready'
+    | 'playing'
     | 'interaction'
     | 'finished'
     | 'error';
@@ -27,6 +28,7 @@ export type PluginLoadedPayload = {
         requires_play_signal: boolean;
         can_finish: boolean;
         static_media: boolean;
+        can_report_playing?: boolean;
     };
     config_schema: Record<string, unknown>;
 };
@@ -69,8 +71,9 @@ export type PluginErrorPayload = {
  *   2. Host sends 'config' with instance config, content, and timing
  *   3. Plugin prepares itself, then calls plugin.ready() -> sends 'ready' to host
  *   4. Host sends 'play' to begin playback
- *   5. Plugin calls plugin.finished() when done -> sends 'finished' to host
- *   6. Plugin calls plugin.error() on failure -> sends 'error' to host
+ *   5. Opt-in plugins call plugin.afterPaint(playRequest) when content is visible
+ *   6. Plugin calls plugin.finished() when done -> sends 'finished' to host
+ *   7. Plugin calls plugin.error() on failure -> sends 'error' to host
  */
 var SignagePlugin = (function () {
     'use strict';
@@ -119,6 +122,10 @@ var SignagePlugin = (function () {
             return false;
         }
 
+        if (event.source !== window.parent) {
+            return false;
+        }
+
         // Validate origin if an allowed origin has been configured
         if (allowedOrigin && event && event.origin !== allowedOrigin) {
             console.warn(
@@ -143,6 +150,7 @@ var SignagePlugin = (function () {
      * @param {boolean} [options.capabilities.requires_play_signal=true]
      * @param {boolean} [options.capabilities.can_finish=true]
      * @param {boolean} [options.capabilities.static_media=false]
+     * @param {boolean} [options.capabilities.can_report_playing=false]
      * @param {object} [options.config_schema]   - JSON-schema-like config descriptor
      * @param {string} [options.allowed_origin]   - Restrict messages to this origin (e.g. 'https://example.com')
      * @param {function} [options.onConfig]      - Called when host sends config
@@ -172,6 +180,8 @@ var SignagePlugin = (function () {
 
         var capabilities = options.capabilities || {};
         var allowedOrigin = options.allowed_origin || null;
+        var currentPlay = null;
+        var paintReported = false;
         var state = {
             configured: false,
             playing: false,
@@ -195,6 +205,9 @@ var SignagePlugin = (function () {
             }
 
             if (data.type === 'config') {
+                currentPlay = null;
+                state.playing = false;
+                state.finished = false;
                 var payload = data.payload || {};
                 state.configured = true;
                 state.instanceId = payload.instance_id || null;
@@ -213,9 +226,12 @@ var SignagePlugin = (function () {
             }
 
             if (data.type === 'play') {
+                currentPlay = { request_id: data.request_id };
+                paintReported = false;
                 state.playing = true;
+                state.finished = false;
                 if (handlers.onPlay) {
-                    handlers.onPlay();
+                    handlers.onPlay(currentPlay);
                 }
             }
         });
@@ -229,11 +245,44 @@ var SignagePlugin = (function () {
             },
 
             /**
+             * Confirm visible playback for the captured onPlay request.
+             * Use this only after the template has confirmed a painted frame.
+             */
+            playing: function (playRequest) {
+                if (
+                    playRequest &&
+                    playRequest === currentPlay &&
+                    state.playing &&
+                    !paintReported
+                ) {
+                    paintReported = true;
+                    _postToHost('playing', undefined, playRequest.request_id);
+                }
+            },
+
+            /**
+             * Allow a paint after content is ready, then confirm this request.
+             * Two frames put a paint between the callbacks. Stale requests
+             * cannot confirm a later config or play.
+             */
+            afterPaint: function (playRequest) {
+                if (!playRequest || playRequest !== currentPlay) return;
+                window.requestAnimationFrame(function () {
+                    if (playRequest !== currentPlay) return;
+                    window.requestAnimationFrame(function () {
+                        instance.playing(playRequest);
+                    });
+                });
+            },
+
+            /**
              * Signal to the host that playback has finished.
              */
             finished: function () {
                 if (!state.finished) {
                     state.finished = true;
+                    state.playing = false;
+                    currentPlay = null;
                     _postToHost('finished');
                 }
             },
@@ -249,6 +298,10 @@ var SignagePlugin = (function () {
              */
             error: function (err) {
                 err = err || {};
+                if (err.fatal) {
+                    currentPlay = null;
+                    state.playing = false;
+                }
                 _postToHost('error', {
                     code: err.code || 'UNKNOWN_ERROR',
                     message: err.message || 'An unknown error occurred',
@@ -275,9 +328,9 @@ var SignagePlugin = (function () {
             /**
              * Post an interaction event to host
              */
-            interaction: function (duration = 0) {
+            interaction: function (duration) {
                 _postToHost('interaction', {
-                    new_duration: duration,
+                    new_duration: duration === undefined ? 0 : duration,
                 });
             },
 
@@ -316,6 +369,7 @@ var SignagePlugin = (function () {
                     capabilities.static_media !== undefined
                         ? capabilities.static_media
                         : false,
+                can_report_playing: capabilities.can_report_playing === true,
             },
             config_schema: options.config_schema || {},
         });

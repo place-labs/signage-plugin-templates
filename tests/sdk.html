@@ -1,0 +1,299 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Signage SDK tests</title>
+    </head>
+    <body>
+        <h1>Signage SDK tests</h1>
+        <pre id="results">Running...</pre>
+        <iframe
+            id="fixture"
+            src="sdk-fixture.html"
+            title="SDK fixture"
+        ></iframe>
+        <script>
+            (function () {
+                'use strict';
+                var iframe = document.getElementById('fixture');
+                var messages = [];
+                var results = [];
+                var child;
+                var request;
+                var replacement;
+                var output = document.getElementById('results');
+                window.testResults = { complete: false, results: results };
+                window.addEventListener('message', function (event) {
+                    if (event.source === iframe.contentWindow)
+                        messages.push(event.data);
+                });
+                function count(type) {
+                    return messages.filter(function (message) {
+                        return message.type === type;
+                    }).length;
+                }
+                function deliver(type, id, source) {
+                    child.dispatchEvent(
+                        new child.MessageEvent('message', {
+                            source: source || window,
+                            data: {
+                                api: 'signage-plugin/v1',
+                                type: type,
+                                request_id: id,
+                                payload: {},
+                            },
+                        }),
+                    );
+                }
+                function tick() {
+                    var callbacks = child.frames.splice(0);
+                    callbacks.forEach(function (callback) {
+                        callback();
+                    });
+                }
+                function check(name, action, assertion) {
+                    return function () {
+                        action();
+                        return new Promise(function (resolve) {
+                            setTimeout(function () {
+                                var passed = assertion();
+                                results.push({ name: name, passed: passed });
+                                output.textContent = results
+                                    .map(function (result) {
+                                        return (
+                                            (result.passed
+                                                ? 'PASS '
+                                                : 'FAIL ') + result.name
+                                        );
+                                    })
+                                    .join('\n');
+                                resolve();
+                            }, 30);
+                        });
+                    };
+                }
+                iframe.addEventListener('load', function run() {
+                    iframe.removeEventListener('load', run);
+                    child = iframe.contentWindow;
+                    var tests = [
+                        check(
+                            'Capability is advertised',
+                            function () {},
+                            function () {
+                                return (
+                                    messages[0].payload.capabilities
+                                        .can_report_playing === true
+                                );
+                            },
+                        ),
+                        check(
+                            'Play captures its request without confirming',
+                            function () {
+                                deliver('config');
+                                deliver('play', 'one');
+                                request = child.requests[0];
+                            },
+                            function () {
+                                return (
+                                    request.request_id === 'one' &&
+                                    count('playing') === 0
+                                );
+                            },
+                        ),
+                        check(
+                            'First animation frame does not confirm',
+                            function () {
+                                child.plugin.afterPaint(request);
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 0;
+                            },
+                        ),
+                        check(
+                            'Second frame confirms the same request',
+                            tick,
+                            function () {
+                                return (
+                                    count('playing') === 1 &&
+                                    messages[messages.length - 1].request_id ===
+                                        'one'
+                                );
+                            },
+                        ),
+                        check(
+                            'Duplicate confirmation is suppressed',
+                            function () {
+                                child.plugin.playing(request);
+                                child.plugin.afterPaint(request);
+                                tick();
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 1;
+                            },
+                        ),
+                        check(
+                            'A new play invalidates queued paint',
+                            function () {
+                                deliver('play', 'two');
+                                request = child.requests[1];
+                                child.plugin.afterPaint(request);
+                                tick();
+                                deliver('play', 'three');
+                                replacement = child.requests[2];
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 1;
+                            },
+                        ),
+                        check(
+                            'New play can confirm',
+                            function () {
+                                child.plugin.afterPaint(replacement);
+                                tick();
+                                tick();
+                            },
+                            function () {
+                                return (
+                                    count('playing') === 2 &&
+                                    messages[messages.length - 1].request_id ===
+                                        'three'
+                                );
+                            },
+                        ),
+                        check(
+                            'Config invalidates queued paint',
+                            function () {
+                                deliver('play', 'four');
+                                child.plugin.afterPaint(child.requests[3]);
+                                tick();
+                                deliver('config');
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 2;
+                            },
+                        ),
+                        check(
+                            'Fatal error invalidates queued paint',
+                            function () {
+                                deliver('play', 'five');
+                                child.plugin.afterPaint(child.requests[4]);
+                                tick();
+                                child.plugin.error({
+                                    code: 'TEST',
+                                    message: 'Test',
+                                    fatal: true,
+                                });
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 2;
+                            },
+                        ),
+                        check(
+                            'Nonfatal error allows confirmation',
+                            function () {
+                                deliver('play', 'six');
+                                request = child.requests[5];
+                                child.plugin.error({
+                                    code: 'TEST',
+                                    message: 'Test',
+                                    fatal: false,
+                                });
+                                child.plugin.afterPaint(request);
+                                tick();
+                                tick();
+                            },
+                            function () {
+                                return count('playing') === 3;
+                            },
+                        ),
+                        check(
+                            'Finish cancels paint and sends once',
+                            function () {
+                                deliver('play', 'seven');
+                                child.plugin.afterPaint(child.requests[6]);
+                                child.plugin.finished();
+                                child.plugin.finished();
+                                tick();
+                                tick();
+                            },
+                            function () {
+                                return (
+                                    count('finished') === 1 &&
+                                    count('playing') === 3
+                                );
+                            },
+                        ),
+                        check(
+                            'Replay can finish again',
+                            function () {
+                                deliver('play', 'eight');
+                                child.plugin.finished();
+                            },
+                            function () {
+                                return count('finished') === 2;
+                            },
+                        ),
+                        check(
+                            'Messages from another window are ignored',
+                            function () {
+                                deliver('play', 'spoof', child);
+                            },
+                            function () {
+                                return child.requests.length === 8;
+                            },
+                        ),
+                        check(
+                            'Older hosts without IDs remain compatible',
+                            function () {
+                                deliver('play');
+                                child.plugin.afterPaint(child.requests[8]);
+                                tick();
+                                tick();
+                            },
+                            function () {
+                                return (
+                                    count('playing') === 4 &&
+                                    messages[messages.length - 1].request_id ===
+                                        undefined
+                                );
+                            },
+                        ),
+                    ];
+                    var chain = Promise.resolve();
+                    tests.forEach(function (test) {
+                        chain = chain.then(test);
+                    });
+                    chain.then(function () {
+                        iframe.onload = function () {
+                            setTimeout(function () {
+                                results.push({
+                                    name: 'Capability defaults to false',
+                                    passed:
+                                        messages[messages.length - 1].payload
+                                            .capabilities.can_report_playing ===
+                                        false,
+                                });
+                                window.testResults.complete = true;
+                                output.textContent = results
+                                    .map(function (result) {
+                                        return (
+                                            (result.passed
+                                                ? 'PASS '
+                                                : 'FAIL ') + result.name
+                                        );
+                                    })
+                                    .join('\n');
+                            }, 30);
+                        };
+                        iframe.src = 'sdk-fixture.html?legacy';
+                    });
+                });
+            })();
+        </script>
+    </body>
+</html>

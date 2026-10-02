@@ -264,6 +264,10 @@
                 var shouldPlay = false;
                 var readyPending = false;
                 var forceRebuild = false;
+                var playRequest = null;
+                var contentReady = false;
+                var configGeneration = 0;
+                var fadeTimer = null;
                 // Incremented per fetch cycle; stale in-flight responses
                 // (from a superseded config or refresh) are discarded
                 var fetchSeq = 0;
@@ -275,17 +279,27 @@
                 var plugin = SignagePlugin.create({
                     plugin: {
                         name: 'news-ticker',
-                        version: '1.3.0',
+                        version: '1.4.0',
                         type: 'widget',
                     },
                     capabilities: {
                         requires_play_signal: true,
                         can_finish: false,
                         static_media: false,
+                        can_report_playing: true,
                     },
                     config_schema: CONFIG_SCHEMA,
 
                     onConfig: function (payload) {
+                        configGeneration++;
+                        fetchSeq++;
+                        playRequest = null;
+                        contentReady = false;
+                        if (fadeTimer !== null) {
+                            clearTimeout(fadeTimer);
+                            fadeTimer = null;
+                        }
+                        tickerEl.className = '';
                         var config = payload.config || {};
 
                         var url = resolveFeedUrl(config, payload.content);
@@ -346,9 +360,11 @@
                         fetchFeed();
                     },
 
-                    onPlay: function () {
+                    onPlay: function (request) {
+                        playRequest = request;
                         shouldPlay = true;
                         startScrolling();
+                        if (contentReady) plugin.afterPaint(request);
                     },
                 });
 
@@ -534,12 +550,13 @@
                     }
 
                     hasLoadedOnce = true;
+                    var wasReadyPending = readyPending;
+                    readyPending = false;
                     applyItems(items.slice(0, maxItems));
                     scheduleRefresh(resolveRefreshSeconds(xhr, doc));
 
                     // Answer each config push with ready once its feed loads
-                    if (readyPending) {
-                        readyPending = false;
+                    if (wasReadyPending) {
                         plugin.ready();
                     }
                 }
@@ -823,9 +840,14 @@
                     }
 
                     tickerEl.className = 'fading';
-                    setTimeout(function () {
+                    if (fadeTimer !== null) clearTimeout(fadeTimer);
+                    var generation = configGeneration;
+                    fadeTimer = setTimeout(function () {
+                        fadeTimer = null;
+                        if (generation !== configGeneration) return;
                         rebuildTrack();
                         tickerEl.className = '';
+                        confirmPlayback();
                     }, FADE_MS);
                 }
 
@@ -879,6 +901,15 @@
                     }
 
                     trackEl.style.transform = 'translate3d(0, 0, 0)';
+                    // The headline is usable even while optional images load.
+                    contentReady = !readyPending;
+                    confirmPlayback();
+                }
+
+                function confirmPlayback() {
+                    if (contentReady && tickerEl.className !== 'fading') {
+                        plugin.afterPaint(playRequest);
+                    }
                 }
 
                 function buildSequence(items) {

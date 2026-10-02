@@ -1,0 +1,305 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Signage template tests</title>
+    </head>
+    <body>
+        <h1>Signage template tests</h1>
+        <pre id="results">Running...</pre>
+        <iframe
+            id="fixture"
+            title="Template fixture"
+            style="width: 900px; height: 120px"
+        ></iframe>
+        <script>
+            (function () {
+                'use strict';
+                var iframe = document.getElementById('fixture');
+                var messages = [];
+                var results = [];
+                var child;
+                // Capture fixture output without cross-frame task throttling.
+                // SDK wire messaging is tested separately in sdk.html.
+                window.postMessage = function (message) {
+                    messages.push(JSON.parse(JSON.stringify(message)));
+                };
+                window.testResults = { complete: false, results: results };
+                window.addEventListener('message', function (event) {
+                    if (event.source === iframe.contentWindow)
+                        messages.push(event.data);
+                });
+                function count(type) {
+                    return messages.filter(function (message) {
+                        return message.type === type;
+                    }).length;
+                }
+                function lastPlaying() {
+                    return messages
+                        .filter(function (message) {
+                            return message.type === 'playing';
+                        })
+                        .slice(-1)[0];
+                }
+                function deliver(type, config, id) {
+                    child.dispatchEvent(
+                        new child.MessageEvent('message', {
+                            source: window,
+                            data: {
+                                api: 'signage-plugin/v1',
+                                type: type,
+                                request_id: id,
+                                payload: { config: config || {} },
+                            },
+                        }),
+                    );
+                }
+                function delay(ms) {
+                    return new Promise(function (resolve) {
+                        setTimeout(function () {
+                            child.templateFixture.tick();
+                            child.templateFixture.tick();
+                            resolve();
+                        }, ms);
+                    });
+                }
+                function check(name, passed) {
+                    results.push({ name: name, passed: passed });
+                    document.getElementById('results').textContent = results
+                        .map(function (result) {
+                            return (
+                                (result.passed ? 'PASS ' : 'FAIL ') +
+                                result.name
+                            );
+                        })
+                        .join('\n');
+                }
+                function load(name) {
+                    messages = [];
+                    return fetch('../' + name + '.html')
+                        .then(function (response) {
+                            return response.text();
+                        })
+                        .then(function (html) {
+                            return new Promise(function (resolve) {
+                                iframe.onload = function () {
+                                    child = iframe.contentWindow;
+                                    delay(60).then(resolve);
+                                };
+                                iframe.srcdoc = html.replace(
+                                    '<script src="plugin.js">',
+                                    '<script src="template-fixtures.js"><\/script><script src="../plugin.js">',
+                                );
+                            });
+                        });
+                }
+                window.holdTemplateApi = true;
+                load('youtube')
+                    .then(function () {
+                        deliver('config', { video_id: 'valid-before-invalid' });
+                        deliver('config', {});
+                        deliver('play', null, 'yt-invalid');
+                        child.templateFixture.releaseApi();
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Invalid YouTube config cancels pending API initialization',
+                            child.templateFixture.players.length === 0 &&
+                                count('ready') === 0 &&
+                                count('playing') === 0,
+                        );
+                        window.holdTemplateApi = false;
+                        return load('youtube');
+                    })
+                    .then(function () {
+                        deliver('config', { video_id: 'test', loop: false });
+                        deliver('play', null, 'yt-1');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'YouTube starts a play received before API readiness',
+                            child.templateFixture.players[0].playCalls === 1,
+                        );
+                        check(
+                            'YouTube does not confirm API ready or playVideo()',
+                            count('playing') === 0,
+                        );
+                        child.templateFixture.players[0].emit(1);
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'YouTube confirms PLAYING with the original ID',
+                            count('playing') === 1 &&
+                                lastPlaying().request_id === 'yt-1',
+                        );
+                        deliver('play', null, 'yt-replay');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'YouTube confirms replay while already playing',
+                            count('playing') === 2 &&
+                                lastPlaying().request_id === 'yt-replay',
+                        );
+                        deliver('config', {
+                            video_id: 'replacement',
+                            loop: false,
+                        });
+                        deliver('play', null, 'yt-new');
+                        child.templateFixture.players[0].emit(1);
+                        child.templateFixture.players[0].emit(0);
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Old YouTube player cannot confirm or finish a new config',
+                            count('playing') === 2 && count('finished') === 0,
+                        );
+                        child.templateFixture.players[1].emit(1);
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Replacement YouTube player confirms its own play',
+                            lastPlaying().request_id === 'yt-new',
+                        );
+                        window.holdTemplateApi = true;
+                        return load('instagram');
+                    })
+                    .then(function () {
+                        deliver('config', {
+                            shortcode: 'valid-before-invalid',
+                        });
+                        deliver('config', {});
+                        deliver('play', null, 'ig-invalid');
+                        child.templateFixture.releaseApi();
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Invalid Instagram config cancels pending embed initialization',
+                            child.templateFixture.embedLoads.length === 0 &&
+                                count('ready') === 0 &&
+                                count('playing') === 0,
+                        );
+                        window.holdTemplateApi = false;
+                        return load('instagram');
+                    })
+                    .then(function () {
+                        deliver('config', { shortcode: 'local-test' });
+                        deliver('play', null, 'ig-1');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Instagram iframe insertion is not ready or playing',
+                            count('ready') === 0 &&
+                                count('playing') === 0 &&
+                                child.templateFixture.embedLoads.length === 1,
+                        );
+                        var old = child.templateFixture.embedLoads[0];
+                        deliver('config', { shortcode: 'replacement' });
+                        deliver('play', null, 'ig-new');
+                        old.callback();
+                        return delay(80);
+                    })
+                    .then(function () {
+                        // Calling a removed listener is an artificial stale callback;
+                        // it must still not confirm the replacement request.
+                        check(
+                            'Old Instagram load cannot confirm a new config',
+                            count('playing') === 0,
+                        );
+                        var load =
+                            child.templateFixture.embedLoads.slice(-1)[0];
+                        load.callback();
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Instagram confirms after iframe load',
+                            count('playing') === 1 &&
+                                lastPlaying().request_id === 'ig-new',
+                        );
+                        deliver('play', null, 'ig-replay');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Loaded Instagram embed confirms replay',
+                            count('playing') === 2 &&
+                                lastPlaying().request_id === 'ig-replay',
+                        );
+                        return load('news-ticker');
+                    })
+                    .then(function () {
+                        deliver('config', {
+                            feed_url: 'http://localhost/fixture',
+                            show_images: false,
+                        });
+                        deliver('play', null, 'rss-1');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Ticker waits for its feed before confirming',
+                            count('playing') === 0,
+                        );
+                        child.templateFixture.requests[0].respond(
+                            'First headline',
+                        );
+                        return delay(100);
+                    })
+                    .then(function () {
+                        check(
+                            'Ticker confirms rendered headlines',
+                            count('playing') === 1 &&
+                                lastPlaying().request_id === 'rss-1' &&
+                                child.document
+                                    .getElementById('track')
+                                    .textContent.indexOf('First headline') !==
+                                    -1,
+                        );
+                        deliver('config', {
+                            feed_url: 'http://localhost/new-fixture',
+                            show_images: false,
+                        });
+                        deliver('play', null, 'rss-new');
+                        return delay(80);
+                    })
+                    .then(function () {
+                        check(
+                            'Old ticker headlines do not confirm a new config',
+                            count('playing') === 1,
+                        );
+                        child.templateFixture.requests[1].respond(
+                            'Replacement headline',
+                        );
+                        return delay(100);
+                    })
+                    .then(function () {
+                        check(
+                            'Ticker does not confirm while replacement fades out',
+                            count('playing') === 1,
+                        );
+                        return delay(500);
+                    })
+                    .then(function () {
+                        check(
+                            'Ticker confirms after replacement rebuild',
+                            count('playing') === 2 &&
+                                lastPlaying().request_id === 'rss-new',
+                        );
+                        window.testResults.complete = true;
+                    })
+                    .catch(function (error) {
+                        check('Runner error: ' + error.message, false);
+                        window.testResults.complete = true;
+                    });
+            })();
+        </script>
+    </body>
+</html>

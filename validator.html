@@ -415,6 +415,7 @@
                 'use strict';
 
                 var API_VERSION = 'signage-plugin/v1';
+                var playCounter = 0;
 
                 // ---------------------------------------------------------------
                 // State
@@ -426,6 +427,8 @@
                     pluginReady: false,
                     configSent: false,
                     playSent: false,
+                    pluginPlaying: false,
+                    playRequestId: null,
                     pluginFinished: false,
                     loadedPayload: null,
                     configSchema: null,
@@ -533,7 +536,7 @@
                  * @param {string} type
                  * @param {object} [payload]
                  */
-                function sendToPlugin(type, payload) {
+                function sendToPlugin(type, payload, requestId) {
                     if (!state.iframe || !state.iframe.contentWindow) {
                         log('warn', 'No iframe to send message to.');
                         return;
@@ -544,6 +547,9 @@
                     };
                     if (payload !== undefined) {
                         message.payload = payload;
+                    }
+                    if (requestId !== undefined) {
+                        message.request_id = requestId;
                     }
                     state.iframe.contentWindow.postMessage(message, '*');
                     log(
@@ -633,6 +639,15 @@
                         log('pass', 'capabilities object is present.');
 
                         var caps = payload.capabilities;
+                        if (
+                            caps.can_report_playing !== undefined &&
+                            typeof caps.can_report_playing !== 'boolean'
+                        ) {
+                            log(
+                                'fail',
+                                'capabilities.can_report_playing must be a boolean.',
+                            );
+                        }
                         var capKeys = [
                             'requires_play_signal',
                             'can_finish',
@@ -842,7 +857,13 @@
                         valid = false;
                     }
 
-                    var validTypes = ['loaded', 'ready', 'finished', 'error'];
+                    var validTypes = [
+                        'loaded',
+                        'ready',
+                        'playing',
+                        'finished',
+                        'error',
+                    ];
                     if (validTypes.indexOf(data.type) === -1) {
                         log(
                             'fail',
@@ -870,6 +891,7 @@
 
                 var _loadedTimeout = null;
                 var _readyTimeout = null;
+                var _playingTimeout = null;
 
                 var LOADED_TIMEOUT_MS = 5000;
                 var READY_TIMEOUT_MS = 30000;
@@ -903,8 +925,51 @@
                 function clearTimeouts() {
                     if (_loadedTimeout) clearTimeout(_loadedTimeout);
                     if (_readyTimeout) clearTimeout(_readyTimeout);
+                    if (_playingTimeout) clearTimeout(_playingTimeout);
                     _loadedTimeout = null;
                     _readyTimeout = null;
+                    _playingTimeout = null;
+                }
+
+                function reportsPlaying() {
+                    return !!(
+                        state.loadedPayload &&
+                        state.loadedPayload.capabilities &&
+                        state.loadedPayload.capabilities.can_report_playing ===
+                            true
+                    );
+                }
+
+                function validatePlayingMessage(data) {
+                    if (!reportsPlaying()) {
+                        log(
+                            'fail',
+                            'Plugin sent "playing" without can_report_playing=true.',
+                        );
+                        return;
+                    }
+                    if (
+                        !state.playSent ||
+                        data.request_id !== state.playRequestId
+                    ) {
+                        log(
+                            'fail',
+                            'Ignored "playing" with a missing or stale request_id.',
+                        );
+                        return;
+                    }
+                    if (state.pluginPlaying) {
+                        log('warn', 'Duplicate "playing" reply ignored.');
+                        return;
+                    }
+                    if (_playingTimeout) clearTimeout(_playingTimeout);
+                    _playingTimeout = null;
+                    state.pluginPlaying = true;
+                    log(
+                        'pass',
+                        'Playback confirmed for ' + data.request_id + '.',
+                    );
+                    _updateStatus();
                 }
 
                 // ---------------------------------------------------------------
@@ -913,6 +978,13 @@
 
                 window.addEventListener('message', function (event) {
                     var data = event.data;
+
+                    if (
+                        !state.iframe ||
+                        event.source !== state.iframe.contentWindow
+                    ) {
+                        return;
+                    }
 
                     // Ignore non-protocol messages
                     if (
@@ -965,6 +1037,10 @@
                         _enableButtons();
                     }
 
+                    if (data.type === 'playing') {
+                        validatePlayingMessage(data);
+                    }
+
                     if (data.type === 'finished') {
                         validateFinishedMessage();
                         state.pluginFinished = true;
@@ -973,6 +1049,13 @@
 
                     if (data.type === 'error') {
                         validateErrorPayload(data.payload);
+                        if (data.payload && data.payload.fatal === true) {
+                            clearTimeouts();
+                            state.playSent = false;
+                            state.pluginPlaying = false;
+                            state.playRequestId = null;
+                            _updateStatus();
+                        }
                     }
                 });
 
@@ -1060,6 +1143,12 @@
                     }
 
                     closeConfigEditor();
+                    clearTimeouts();
+                    state.pluginReady = false;
+                    state.playSent = false;
+                    state.pluginPlaying = false;
+                    state.pluginFinished = false;
+                    state.playRequestId = null;
                     state.configSent = true;
                     sendToPlugin('config', payload);
                     startReadyTimeout();
@@ -1111,7 +1200,25 @@
                         );
                     }
                     state.playSent = true;
-                    sendToPlugin('play');
+                    state.pluginPlaying = false;
+                    state.pluginFinished = false;
+                    state.playRequestId = 'validator-play-' + ++playCounter;
+                    if (_playingTimeout) clearTimeout(_playingTimeout);
+                    if (reportsPlaying()) {
+                        _playingTimeout = setTimeout(function () {
+                            _playingTimeout = null;
+                            log(
+                                'fail',
+                                'Plugin did not confirm playback within 15s.',
+                            );
+                        }, 15000);
+                    } else {
+                        log(
+                            'warn',
+                            'Legacy plugin: playback cannot be confirmed.',
+                        );
+                    }
+                    sendToPlugin('play', undefined, state.playRequestId);
                     _updateStatus();
                 }
 
@@ -1126,6 +1233,8 @@
                     state.pluginReady = false;
                     state.configSent = false;
                     state.playSent = false;
+                    state.pluginPlaying = false;
+                    state.playRequestId = null;
                     state.pluginFinished = false;
                     state.loadedPayload = null;
                     state.configSchema = null;
@@ -1155,8 +1264,14 @@
                     }
                     if (state.pluginFinished) {
                         parts.push('finished');
-                    } else if (state.playSent) {
+                    } else if (state.pluginPlaying) {
                         parts.push('playing');
+                    } else if (state.playSent) {
+                        parts.push(
+                            reportsPlaying()
+                                ? 'starting...'
+                                : 'play sent (unconfirmed)',
+                        );
                     } else if (state.pluginReady) {
                         parts.push('ready');
                     } else if (state.configSent) {

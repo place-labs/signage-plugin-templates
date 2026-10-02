@@ -26,8 +26,15 @@ prettier --write foo.html   # format a single file
 
 ### Testing
 
-No test framework is set up. No test files exist. If tests are added, keep them alongside
-source files or in a `tests/` directory and document the runner here.
+No test framework is required. Serve this directory with `python3 -m http.server
+8080`, then open `http://localhost:8080/tests/sdk.html`. All checks must show
+PASS. The runner checks request correlation, paint timing, stale callbacks,
+replay, error cancellation, and legacy capability defaults. Browser automation
+can read `window.testResults` when `complete` is true.
+
+Open `tests/templates.html` on the same server to test YouTube, Instagram, and
+news ticker readiness and reconfiguration. These tests use local API fixtures
+and do not send requests to external content services.
 
 ### Manual Validation
 
@@ -67,6 +74,7 @@ Host                          Plugin (iframe)
   |--------- config ----------->|   (host sends configuration)
   |<-------- ready -------------|   (plugin signals readiness)
   |--------- play ------------->|   (host triggers playback)
+  |<-------- playing -----------|   (opt-in; confirms visible playback)
   |<-------- finished ----------|   (plugin signals completion)
 ```
 
@@ -97,14 +105,14 @@ Error reporting at any stage: `plugin.error({ code, message, fatal, details })`
 
 ### Naming Conventions
 
-| Context                      | Convention          | Examples                                  |
-| ---------------------------- | ------------------- | ----------------------------------------- |
-| JS variables and functions   | camelCase           | `pluginConfig`, `initPlayer`, `showError` |
-| Private/internal functions   | _camelCase (prefix) | `_postToHost`, `_isValidHostMessage`      |
-| Constants                    | UPPER_SNAKE_CASE    | `API_VERSION`, `CONFIG_SCHEMA`            |
-| Protocol/data property names | snake_case          | `video_id`, `api_key`, `instance_id`      |
-| Error codes                  | UPPER_SNAKE_CASE    | `MISSING_VIDEO_ID`, `YT_API_LOAD_FAILED`  |
-| HTML element IDs             | kebab-case          | `#player`, `#error-overlay`               |
+| Context                      | Convention           | Examples                                  |
+| ---------------------------- | -------------------- | ----------------------------------------- |
+| JS variables and functions   | camelCase            | `pluginConfig`, `initPlayer`, `showError` |
+| Private/internal functions   | \_camelCase (prefix) | `_postToHost`, `_isValidHostMessage`      |
+| Constants                    | UPPER_SNAKE_CASE     | `API_VERSION`, `CONFIG_SCHEMA`            |
+| Protocol/data property names | snake_case           | `video_id`, `api_key`, `instance_id`      |
+| Error codes                  | UPPER_SNAKE_CASE     | `MISSING_VIDEO_ID`, `YT_API_LOAD_FAILED`  |
+| HTML element IDs             | kebab-case           | `#player`, `#error-overlay`               |
 
 ### Imports / Script Loading
 
@@ -155,7 +163,8 @@ When calling `SignagePlugin.create()`, set capabilities as appropriate:
 capabilities: {
     requires_play_signal: true,   // plugin waits for host "play" message
     can_finish: true,             // plugin will signal when done
-    static_media: false           // true if content does not change over time
+    static_media: false,          // true if content does not change over time
+    can_report_playing: false      // opt in only when visible playback is confirmed
 }
 ```
 

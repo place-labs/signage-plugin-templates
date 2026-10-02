@@ -56,6 +56,7 @@ Host                              Plugin (iframe)
   |------------ play -------------->|  host triggers playback
   |                                  |  onPlay callback fires
   |                                  |  (plugin plays content)
+  |<----------- playing -------------|  visible playback confirmed (opt-in)
   |                                  |
   |<-------- interaction ------------|  plugin.interaction(...) (optional)
   |                                  |
@@ -98,7 +99,9 @@ var plugin = SignagePlugin.create({
         can_finish: true,
         static_media: false,
     },
-    config_schema: {/* ... */},
+    config_schema: {
+        /* ... */
+    },
     allowed_origin: null,
     onConfig: function (data) {
         /* ... */
@@ -119,6 +122,7 @@ var plugin = SignagePlugin.create({
 | `capabilities.requires_play_signal` | boolean  | No       | `true`     | Plugin waits for the host `play` message before starting            |
 | `capabilities.can_finish`           | boolean  | No       | `true`     | Plugin will call `finished()` when done                             |
 | `capabilities.static_media`         | boolean  | No       | `false`    | Content does not change over time                                   |
+| `capabilities.can_report_playing`   | boolean  | No       | `false`    | Plugin confirms visible playback for each play request              |
 | `config_schema`                     | object   | No       | `{}`       | JSON-Schema-like descriptor for host UI generation                  |
 | `allowed_origin`                    | string   | No       | `null`     | Restrict accepted messages to this origin                           |
 | `onConfig`                          | function | No       | `null`     | Called when the host sends configuration                            |
@@ -150,8 +154,25 @@ prepare the plugin. Call `plugin.ready()` when preparation is complete.
 
 ### `onPlay` Callback
 
-Called when the host sends a `play` message. Takes no arguments. Start playback
-here.
+Called when the host sends a `play` message. Receives a request object with the
+host's optional `request_id`. Start playback here. Keep this object for the
+confirmation when asynchronous content becomes visible.
+
+```js
+onPlay: function (playRequest) {
+    renderContent();
+    plugin.afterPaint(playRequest);
+}
+```
+
+Set `can_report_playing: true` only if every play request can receive a
+confirmation. `ready` means the plugin can accept play. It does not confirm
+visible playback. The PlaceOS player waits up to 15 seconds for opted-in
+plugins, then uses a fallback reveal if confirmation is missing. Legacy plugins keep
+the player's existing fallback delay.
+
+YouTube, Instagram, and the news ticker opt in. The other widget templates
+keep the default `false` capability.
 
 ### Instance Methods
 
@@ -165,7 +186,23 @@ content, etc.).
 
 Signals that playback is complete. Only relevant for plugins with
 `can_finish: true`. Guarded against duplicate calls -- only the first call sends
-a message.
+a message per play request.
+
+#### `plugin.afterPaint(playRequest)`
+
+Call after the requested content is ready to display or playback has started.
+The SDK waits for two animation frames, then sends `playing` with the original
+`request_id`. A browser paint can occur between the callbacks. The SDK ignores
+duplicate confirmations and callbacks from a previous config or play request.
+Fatal errors and `finished()` also cancel pending confirmations.
+
+This helper does not load assets or prove that a cross-origin frame has rendered
+all of its content. Wait for the content's readiness signal before calling it.
+
+#### `plugin.playing(playRequest)`
+
+Send the same confirmation without the animation-frame wait. Use this only
+when the plugin has already confirmed that a frame is visible.
 
 #### `plugin.error(err)`
 
@@ -293,13 +330,14 @@ All messages conform to this envelope:
 
 ### Plugin to Host Messages
 
-| Type          | Payload                                   | Description                                |
-| ------------- | ----------------------------------------- | ------------------------------------------ |
-| `loaded`      | `{ plugin, capabilities, config_schema }` | Plugin initialized and ready for config    |
-| `ready`       | none                                      | Plugin prepared and ready for playback     |
-| `interaction` | `{ new_duration }`                        | Optional interaction event during playback |
-| `finished`    | none                                      | Playback complete                          |
-| `error`       | `{ code, message, fatal, details }`       | Error report                               |
+| Type          | Payload                                   | Description                                                 |
+| ------------- | ----------------------------------------- | ----------------------------------------------------------- |
+| `loaded`      | `{ plugin, capabilities, config_schema }` | Plugin initialized and ready for config                     |
+| `ready`       | none                                      | Plugin prepared and ready for playback                      |
+| `playing`     | none                                      | Visible playback confirmation; echoes the play `request_id` |
+| `interaction` | `{ new_duration }`                        | Optional interaction event during playback                  |
+| `finished`    | none                                      | Playback complete                                           |
+| `error`       | `{ code, message, fatal, details }`       | Error report                                                |
 
 ### Host to Plugin Messages
 
@@ -334,6 +372,10 @@ content.
 The video ID can also be provided via `content.url` using standard YouTube URL
 formats (`youtu.be/ID`, `youtube.com/watch?v=ID`, `youtube.com/embed/ID`).
 
+Playback confirmation waits for the YouTube `PLAYING` state and two animation
+frames. See the [YouTube IFrame API events](https://developers.google.com/youtube/iframe_api_reference#Events).
+The cross-origin player does not expose its rendered video pixels to this plugin.
+
 **Error codes:** `MISSING_VIDEO_ID`, `YT_API_LOAD_FAILED`, `YT_PLAYER_ERROR`
 
 ### Instagram Embed (`instagram.html`)
@@ -354,6 +396,10 @@ media.
 | `max_width`    | number  | `540`    | Embed max width in pixels (326-540)           |
 
 The URL can also be provided via `content.url`.
+
+Playback confirmation waits for the embedded iframe's `load` event and two
+animation frames. This confirms frame loading, but Instagram can still load
+images or video inside that cross-origin frame later.
 
 **Error codes:** `MISSING_URL`, `INVALID_URL`, `MISSING_CONTAINER`,
 `EMBED_SCRIPT_LOAD_FAILED`, `EMBED_RENDER_TIMEOUT`, `EMBED_API_UNAVAILABLE`
@@ -746,7 +792,7 @@ before anything has been displayed)
                 // Plugin state
                 // ---------------------------------------------------------------
                 var config = null;
-                var pendingPlay = false;
+                var finishTimer = null;
 
                 // ---------------------------------------------------------------
                 // Create plugin instance
@@ -761,10 +807,12 @@ before anything has been displayed)
                         requires_play_signal: true,
                         can_finish: true,
                         static_media: false,
+                        can_report_playing: true,
                     },
                     config_schema: CONFIG_SCHEMA,
 
                     onConfig: function (data) {
+                        if (finishTimer !== null) clearTimeout(finishTimer);
                         config = data.config || {};
 
                         // Validate required fields
@@ -773,29 +821,24 @@ before anything has been displayed)
                             message;
 
                         plugin.ready();
-
-                        if (pendingPlay) {
-                            pendingPlay = false;
-                            startPlayback();
-                        }
                     },
 
-                    onPlay: function () {
-                        if (!config) {
-                            pendingPlay = true;
-                            return;
-                        }
-                        startPlayback();
+                    onPlay: function (playRequest) {
+                        if (!config) return;
+                        startPlayback(playRequest);
                     },
                 });
 
-                function startPlayback() {
+                function startPlayback(playRequest) {
+                    plugin.afterPaint(playRequest);
                     var duration =
                         config.duration_ms !== undefined
                             ? config.duration_ms
                             : 5000;
 
-                    setTimeout(function () {
+                    if (finishTimer !== null) clearTimeout(finishTimer);
+                    finishTimer = setTimeout(function () {
+                        finishTimer = null;
                         plugin.finished();
                     }, duration);
                 }
@@ -863,7 +906,6 @@ against the `signage-plugin/v1` protocol.
 3. Enter your plugin URL in the input field (e.g. `my-plugin.html`).
 
 4. Walk through the lifecycle:
-
     - **Load** -- Click to load your plugin in a sandboxed iframe. The validator
       waits up to 5 seconds for a `loaded` message.
     - **Send Config** -- Opens a JSON editor pre-populated with defaults from
@@ -888,7 +930,7 @@ The validation log uses color-coded entries:
 **Protocol envelope checks:**
 
 - `api` field equals `'signage-plugin/v1'`
-- `type` is a valid plugin message type (`loaded`, `ready`, `finished`, `error`)
+- `type` is a valid plugin message type (`loaded`, `ready`, `playing`, `finished`, `error`)
 
 The SDK also supports an `interaction` plugin message. The current validator does
 not yet recognize it, so interactive plugins may log a validator failure if they
@@ -901,14 +943,17 @@ emit `interaction` during testing.
 - `plugin.type` is `plugin` or `widget` (warns if missing)
 - `capabilities` object is present with boolean values for
   `requires_play_signal`, `can_finish`, and `static_media`
+- Optional `can_report_playing` is a boolean
 - `config_schema` is present
 
 **Lifecycle checks:**
 
 - `ready` arrives after `config` was sent (warns if before)
 - `finished` is not sent by plugins that declared `can_finish: false`
-- `finished` is not sent more than once
+- `finished` is not sent more than once per play request
 - `play` is not sent before `ready` was received
+- `playing` confirms the current play request ID from the current iframe
+- Status stays `starting...` until confirmation; legacy playback is marked unconfirmed
 
 **Error message checks:**
 
@@ -921,11 +966,19 @@ emit `interaction` during testing.
 
 - Plugin must send `loaded` within 5 seconds of iframe creation
 - Plugin must send `ready` within 30 seconds of receiving config
+- An opted-in plugin must confirm `playing` within 15 seconds of receiving play
 
 A summary bar at the bottom of the log shows the total count of passed, failed,
 and warning checks.
 
 ---
+
+## Tests
+
+Serve this directory locally, then open `tests/sdk.html` and
+`tests/templates.html`. All checks must show PASS. The template tests use
+controlled API and animation-frame fixtures. They do not use remote services.
+Automation can read `window.testResults` after `complete` becomes true.
 
 ## Formatting
 

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>SDK fixture</title>
+    </head>
+    <body>
+        <script>
+            var frames = [];
+            var requests = [];
+            window.requestAnimationFrame = function (callback) {
+                frames.push(callback);
+                return frames.length;
+            };
+        </script>
+        <script src="../plugin.js"></script>
+        <script>
+            var plugin = SignagePlugin.create({
+                plugin: { name: 'sdk-test', version: '1' },
+                capabilities:
+                    location.search === '?legacy'
+                        ? {}
+                        : { can_report_playing: true },
+                onPlay: function (request) {
+                    requests.push(request);
+                },
+            });
+        </script>
+    </body>
+</html>
